@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
@@ -33,6 +34,7 @@ struct WorkerTask {
     IosUIBridge::MemoryFeature feature;
     bool enable;
     float param;
+    bool silentRetry = false;
 };
 
 std::mutex gStateMutex;
@@ -185,8 +187,7 @@ std::vector<uintptr_t> ScanNoGrassAddrs() {
     return hits;
 }
 
-std::vector<uintptr_t> ScanFastParachuteAddrs() {
-    auto regions = QueryPreferredRegions(MachMemory::GetRegionMode());
+std::vector<uintptr_t> ScanFastParachuteInRegions(const std::vector<MachMemory::MemoryRegion>& regions) {
     std::vector<uintptr_t> hits;
     std::vector<uint8_t> buf(65536 + 256);
 
@@ -220,6 +221,93 @@ std::vector<uintptr_t> ScanFastParachuteAddrs() {
         }
     }
     return hits;
+}
+
+std::vector<uintptr_t> ScanFastParachuteAddrs() {
+    auto hits = ScanFastParachuteInRegions(QueryPreferredRegions(MachMemory::GetRegionMode()));
+    if (!hits.empty()) return hits;
+    return ScanFastParachuteInRegions(MachMemory::QueryRegions(MachMemory::RegionMode::Standard));
+}
+
+void ScanAndPatchSpeedInRegions(
+    const std::vector<MachMemory::MemoryRegion>& regions,
+    float mult,
+    MachMemory::PatchState& newPatches,
+    size_t& matched,
+    size_t& applied) {
+    // Pass 1: 64-bit double (3.05, 34.0, 1.1, -2000.0)
+    auto hits = MachMemory::GroupScan(
+        regions,
+        {MachMemory::SearchItem::Double(3.05),
+         MachMemory::SearchItem::Double(34.0),
+         MachMemory::SearchItem::Double(1.1),
+         MachMemory::SearchItem::Double(-2000.0)},
+        2, 512, 16, true);
+    if (hits.empty()) {
+        hits = MachMemory::GroupScan(
+            regions,
+            {MachMemory::SearchItem::Double(3.05),
+             MachMemory::SearchItem::Double(1.1),
+             MachMemory::SearchItem::Double(-2000.0)},
+            1, 512, 16, false);
+    }
+    if (hits.empty()) {
+        hits = MachMemory::ProximityScan(
+            regions,
+            MachMemory::SearchItem::Double(-2000.0),
+            MachMemory::SearchItem::Double(1.1),
+            512, 16);
+    }
+    std::vector<uintptr_t> verifiedDoubles;
+    for (uintptr_t addr : hits) {
+        double cur = 0.0;
+        if (MachMemory::ReadValue(addr, &cur) && std::fabs(cur - 1.1) < 0.01) {
+            verifiedDoubles.push_back(addr);
+        }
+    }
+    if (!verifiedDoubles.empty()) {
+        matched = verifiedDoubles.size();
+        applied = ApplyDoubleToTargets(newPatches, verifiedDoubles, static_cast<double>(mult));
+        return;
+    }
+
+    // Pass 2: 32-bit float (1.1f near 3.05f and -2000.0f within 0x100 bytes)
+    std::vector<uintptr_t> floatHits;
+    std::vector<uint8_t> buf(65536 + 512);
+    for (const auto& reg : regions) {
+        for (uintptr_t cur = reg.start; cur < reg.end; cur += 65536) {
+            const size_t chunk = static_cast<size_t>(std::min<uintptr_t>(65536 + 256, reg.end - cur));
+            const size_t limit = static_cast<size_t>(std::min<uintptr_t>(65536, reg.end - cur));
+            if (chunk < 8 || !MachMemory::ReadMemory(cur, buf.data(), chunk)) continue;
+            for (size_t off = 0; off < limit; off += 4) {
+                float v = 0.0f;
+                std::memcpy(&v, buf.data() + off, 4);
+                if (std::fabs(v - 1.1f) >= 0.005f) continue;
+                const size_t winStart = (off > 0x100) ? (off - 0x100) : 0;
+                const size_t winEnd = std::min(chunk, off + 0x100);
+                bool has305 = false;
+                bool hasNeg2000 = false;
+                for (size_t scan = winStart; scan + 4 <= winEnd; scan += 4) {
+                    if (scan == off) continue;
+                    float nv = 0.0f;
+                    std::memcpy(&nv, buf.data() + scan, 4);
+                    if (std::fabs(nv - 3.05f) < 0.01f) has305 = true;
+                    if (std::fabs(nv - (-2000.0f)) < 0.5f) hasNeg2000 = true;
+                    if (has305 && hasNeg2000) break;
+                }
+                if (has305 && hasNeg2000) {
+                    floatHits.push_back(cur + off);
+                    if (floatHits.size() >= 16) break;
+                }
+            }
+            if (floatHits.size() >= 16) break;
+        }
+        if (floatHits.size() >= 16) break;
+    }
+    if (!floatHits.empty()) {
+        matched = floatHits.size();
+        applied = ApplyFloatToTargets(newPatches, floatHits, mult);
+    }
 }
 
 std::vector<uintptr_t> ScanClearFogAddrs() {
@@ -374,10 +462,15 @@ void ExecuteTask(const WorkerTask& task) {
         return;
     }
 
-    // Auto-Reload: handled cleanly inside BigWorld Python runtime (_pb_auto_reload)
+    // Auto-Reload / Unlimited Ammo: handled cleanly inside BigWorld Python runtime
     if (task.feature == MF::AutoReload) {
         std::lock_guard<std::mutex> lock(gStateMutex);
         SetResultLocked(task.feature, true, true, false, "ACTIVE (Auto-Reload)");
+        return;
+    }
+    if (task.feature == MF::UnlimitedAmmo) {
+        std::lock_guard<std::mutex> lock(gStateMutex);
+        SetResultLocked(task.feature, true, true, false, "ACTIVE (Unlimited Ammo)");
         return;
     }
 
@@ -613,37 +706,12 @@ void ExecuteTask(const WorkerTask& task) {
             const float rawParam = (task.param > 1.01f) ? task.param : gSpeedMultiplier.load(std::memory_order_relaxed);
             const float mult = std::clamp(rawParam, 1.1f, 50.0f);
             gSpeedMultiplier.store(mult, std::memory_order_relaxed);
-            auto hits = MachMemory::GroupScan(
-                regions,
-                {MachMemory::SearchItem::Double(3.05),
-                 MachMemory::SearchItem::Double(34.0),
-                 MachMemory::SearchItem::Double(1.1),
-                 MachMemory::SearchItem::Double(-2000.0)},
-                2, 512, 16, true);
-            if (hits.empty()) {
-                hits = MachMemory::GroupScan(
-                    regions,
-                    {MachMemory::SearchItem::Double(3.05),
-                     MachMemory::SearchItem::Double(1.1),
-                     MachMemory::SearchItem::Double(-2000.0)},
-                    1, 512, 16, false);
+            ScanAndPatchSpeedInRegions(regions, mult, newPatches, matched, applied);
+            if (applied == 0) {
+                ScanAndPatchSpeedInRegions(
+                    MachMemory::QueryRegions(MachMemory::RegionMode::Standard),
+                    mult, newPatches, matched, applied);
             }
-            if (hits.empty()) {
-                hits = MachMemory::ProximityScan(
-                    regions,
-                    MachMemory::SearchItem::Double(-2000.0),
-                    MachMemory::SearchItem::Double(1.1),
-                    512, 16);
-            }
-            std::vector<uintptr_t> verifiedHits;
-            for (uintptr_t addr : hits) {
-                double cur = 0.0;
-                if (MachMemory::ReadValue(addr, &cur) && std::fabs(cur - 1.1) < 0.01) {
-                    verifiedHits.push_back(addr);
-                }
-            }
-            matched = verifiedHits.size();
-            applied = ApplyDoubleToTargets(newPatches, verifiedHits, static_cast<double>(mult));
             char buf[64];
             if (applied > 0) {
                 std::snprintf(buf, sizeof(buf), "ACTIVE (%.1fx)", mult);
@@ -720,8 +788,13 @@ void ExecuteTask(const WorkerTask& task) {
 
     std::lock_guard<std::mutex> lock(gStateMutex);
     auto& st = gFeatures[idx];
-    st.patches = std::move(newPatches);
-    st.freezeAddrs = std::move(newFreezeAddrs);
+    if (task.silentRetry && !st.enabled) {
+        return;
+    }
+    if (applied > 0 || !task.silentRetry) {
+        st.patches = std::move(newPatches);
+        st.freezeAddrs = std::move(newFreezeAddrs);
+    }
 
     if (applied > 0) {
         if (detail.empty()) detail = "ACTIVE";
@@ -930,6 +1003,7 @@ const char* GetFeatureName(IosUIBridge::MemoryFeature feature) {
         case MF::InfiniteBreath:  return "Infinite Breath";
         case MF::AntiCheatShield: return "Anti-Cheat Shield";
         case MF::AutoReload:      return "Auto Reload";
+        case MF::UnlimitedAmmo:   return "Unlimited Ammo";
         default:                  return "Feature";
     }
 }
@@ -944,6 +1018,7 @@ void SetSpeedMultiplier(float multiplier) {
         if (st.patches.Count() > 0) {
             const double dMult = static_cast<double>(mult);
             st.patches.UpdateAll(&dMult, sizeof(dMult));
+            st.patches.UpdateAll(&mult, sizeof(mult));
             std::snprintf(buf, sizeof(buf), "ACTIVE (%.1fx)", mult);
         } else {
             std::snprintf(buf, sizeof(buf), "ACTIVE (BigWorld %.1fx)", mult);
@@ -975,27 +1050,61 @@ void SetUndergroundEnabled(bool enabled) {
 }
 
 void Tick() {
-    std::lock_guard<std::mutex> lock(gStateMutex);
+    std::vector<WorkerTask> retries;
+    {
+        std::lock_guard<std::mutex> lock(gStateMutex);
 
-    // Re-freeze FastShot (100.0f)
-    auto& fs = gFeatures[static_cast<size_t>(IosUIBridge::MemoryFeature::FastShot)];
-    if (fs.enabled && !fs.freezeAddrs.empty()) {
-        const float v = 100.0f;
-        for (uintptr_t addr : fs.freezeAddrs) {
-            MachMemory::WriteValue(addr, v);
+        // Re-freeze FastShot (100.0f)
+        auto& fs = gFeatures[static_cast<size_t>(IosUIBridge::MemoryFeature::FastShot)];
+        if (fs.enabled && !fs.freezeAddrs.empty()) {
+            const float v = 100.0f;
+            for (uintptr_t addr : fs.freezeAddrs) {
+                MachMemory::WriteValue(addr, v);
+            }
+        }
+
+        // Re-freeze NoFallDamage when game resets to -450.0f
+        auto& nf = gFeatures[static_cast<size_t>(IosUIBridge::MemoryFeature::NoFallDamage)];
+        if (nf.enabled && !nf.freezeAddrs.empty()) {
+            for (uintptr_t addr : nf.freezeAddrs) {
+                float cur = 0.0f;
+                if (MachMemory::ReadValue(addr, &cur) && std::fabs(cur - (-450.0f)) < 1.0f) {
+                    const float safeVal = 180.0f;
+                    MachMemory::WriteValue(addr, safeVal);
+                }
+            }
+        }
+
+        // Throttled background rescan for SpeedHack / FastParachute if enabled before match/jump allocations
+        static auto sLastRescan = std::chrono::steady_clock::now();
+        const auto now = std::chrono::steady_clock::now();
+        if (now - sLastRescan >= std::chrono::milliseconds(2000)) {
+            sLastRescan = now;
+            const auto& sp = gFeatures[static_cast<size_t>(IosUIBridge::MemoryFeature::SpeedHack)];
+            if (sp.enabled && !sp.pending && sp.patches.Count() == 0) {
+                retries.push_back(WorkerTask{
+                    IosUIBridge::MemoryFeature::SpeedHack, true,
+                    gSpeedMultiplier.load(std::memory_order_relaxed), true});
+            }
+            const auto& fp = gFeatures[static_cast<size_t>(IosUIBridge::MemoryFeature::FastParachute)];
+            if (fp.enabled && !fp.pending && fp.patches.Count() == 0) {
+                retries.push_back(WorkerTask{
+                    IosUIBridge::MemoryFeature::FastParachute, true, 1.0f, true});
+            }
         }
     }
 
-    // Re-freeze NoFallDamage when game resets to -450.0f
-    auto& nf = gFeatures[static_cast<size_t>(IosUIBridge::MemoryFeature::NoFallDamage)];
-    if (nf.enabled && !nf.freezeAddrs.empty()) {
-        for (uintptr_t addr : nf.freezeAddrs) {
-            float cur = 0.0f;
-            if (MachMemory::ReadValue(addr, &cur) && std::fabs(cur - (-450.0f)) < 1.0f) {
-                const float safeVal = 180.0f;
-                MachMemory::WriteValue(addr, safeVal);
+    if (!retries.empty()) {
+        Initialize();
+        {
+            std::lock_guard<std::mutex> wlock(gWorkerMutex);
+            if (gTaskQueue.size() < 4) {
+                for (const auto& t : retries) {
+                    gTaskQueue.push_back(t);
+                }
             }
         }
+        gWorkerCv.notify_one();
     }
 }
 

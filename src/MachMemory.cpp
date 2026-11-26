@@ -74,12 +74,8 @@ std::vector<ImageSegmentRange> CollectLoadedSegments() {
 }
 
 inline bool IsMallocUserTag(unsigned int tag) {
-    // VM_MEMORY_MALLOC* heap tags (1, 2, 3, 7, 11) matching RyomenXCracked mask 0x88e
-    return tag == VM_MEMORY_MALLOC ||
-           tag == VM_MEMORY_MALLOC_SMALL ||
-           tag == VM_MEMORY_MALLOC_LARGE ||
-           tag == VM_MEMORY_MALLOC_LARGE_REUSABLE ||
-           tag == VM_MEMORY_MALLOC_NANO;
+    // Malloc heap tags matching rosauthhook mask 0x3bde (1,2,3,4,6,7,8,9,11,12,13)
+    return tag <= 13U && ((0x3bdeU >> tag) & 1U) != 0U;
 }
 
 bool IsAddressSafeToPatch(uintptr_t addr, size_t size) {
@@ -128,7 +124,7 @@ bool IsAddressSafeToPatch(uintptr_t addr, size_t size) {
         (VM_PROT_READ | VM_PROT_WRITE)) {
         return false;
     }
-    if (info.user_tag == 30 || info.user_tag >= 60) {
+    if (info.user_tag == 30) {
         return false;
     }
     return true;
@@ -249,21 +245,21 @@ std::vector<MemoryRegion> QueryRegions(RegionMode mode) {
         }
 
         bool include = false;
-        if (rwOnly && sensibleRange && !inOwn && !inSys && info.user_tag != 30 && info.user_tag < 60) {
+        if (rwOnly && sensibleRange && !inOwn && !inSys && info.user_tag != 30) {
             switch (mode) {
                 case RegionMode::WritableOnly:
-                    // Heap-only regions outside all Mach-O images
-                    include = (!inApp) && (IsMallocUserTag(info.user_tag) || info.user_tag == 0);
+                    // Writable heap regions outside Mach-O binaries (no user_tag >= 60 cap)
+                    include = (!inApp);
                     break;
                 case RegionMode::Standard:
-                    include = (info.share_mode == SM_PRIVATE || info.share_mode == SM_COW) &&
-                              (inApp || IsMallocUserTag(info.user_tag) || info.user_tag == 0);
+                    // SM_PRIVATE / SM_COW regions matching rosauthhook RegionMode::Standard
+                    include = (info.share_mode == SM_PRIVATE || info.share_mode == SM_COW);
                     break;
                 case RegionMode::Auto:
                     include = inApp || IsMallocUserTag(info.user_tag) || info.user_tag == 0;
                     break;
                 case RegionMode::All:
-                    include = inApp || IsMallocUserTag(info.user_tag);
+                    include = true;
                     break;
             }
         }

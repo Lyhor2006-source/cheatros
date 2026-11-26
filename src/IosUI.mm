@@ -702,9 +702,11 @@ void RenderMemoryTab() {
         EndCard();
 
         ImGui::TableNextColumn();
-        BeginCard("##unlimited", "UNLIMITED", 1, false);
+        BeginCard("##unlimited", "UNLIMITED", 2, false);
         static bool unlimAmmo = false;
-        RenderFeatureToggle("Auto Reload", &unlimAmmo, IosUIBridge::MemoryFeature::AutoReload);
+        static bool autoReload = false;
+        RenderFeatureToggle("Unlimited Ammo", &unlimAmmo, IosUIBridge::MemoryFeature::UnlimitedAmmo);
+        RenderFeatureToggle("Auto Reload", &autoReload, IosUIBridge::MemoryFeature::AutoReload);
         if (IosUIBridge::GetContext().backend) {
             auto st = IosUIBridge::GetContext().backend->GetMemoryFeatureStatus(
                 IosUIBridge::MemoryFeature::AutoReload);

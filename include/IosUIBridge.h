@@ -87,7 +87,8 @@ enum class MemoryFeature : int {
     InfiniteBreath  = 0x23,
     AntiCheatShield = 0x24,
     AutoReload      = 0x25,
-    Count           = 0x26,
+    UnlimitedAmmo   = 0x26,
+    Count           = 0x27,
 };
 
 struct FeatureStatus {
