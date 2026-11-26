@@ -49,18 +49,6 @@ void PushToast(const char* text) {
     ctx.toastStartTime = ImGui::GetCurrentContext() ? ImGui::GetTime() : 0.0;
 }
 
-static bool CaseInsensitiveContains(const std::string& haystack, const std::string& needle) {
-    if (needle.empty()) return true;
-    auto it = std::search(
-        haystack.begin(), haystack.end(),
-        needle.begin(), needle.end(),
-        [](char a, char b) {
-            return std::tolower(static_cast<unsigned char>(a)) ==
-                   std::tolower(static_cast<unsigned char>(b));
-        });
-    return it != haystack.end();
-}
-
 static ImVec2 ResolveSlotPos(float* storedXY, ImVec2 fallbackPos, float viewW, float viewH, float w, float h) {
     if (storedXY[0] >= 0.0f && storedXY[1] >= 0.0f) {
         return ImVec2(
@@ -74,24 +62,6 @@ static ImVec2 GetFeatureIconPos(int idx, float viewW, float viewH) {
     auto& layout = IosUIBridge::GetContext().layout;
     ImVec2 defPos(18.0f, 70.0f + idx * 42.0f);
     return ResolveSlotPos(layout.featurePos[idx], defPos, viewW, viewH, 94.0f, 30.0f);
-}
-
-static ImVec2 GetTeleportIconPos(int idx, float viewW, float viewH) {
-    auto& layout = IosUIBridge::GetContext().layout;
-    ImVec2 defPos(std::max(4.0f, viewW - 44.0f), 70.0f + idx * 36.0f);
-    return ResolveSlotPos(layout.teleportPos[idx], defPos, viewW, viewH, 30.0f, 30.0f);
-}
-
-static ImVec2 GetAutoFireButtonPos(float viewW, float viewH) {
-    auto& layout = IosUIBridge::GetContext().layout;
-    ImVec2 defPos(std::max(4.0f, viewW - 88.0f), std::max(4.0f, viewH - 96.0f));
-    return ResolveSlotPos(layout.autoFirePos, defPos, viewW, viewH, 32.0f, 32.0f);
-}
-
-static ImVec2 GetHideMenuButtonPos(float viewW, float viewH) {
-    auto& layout = IosUIBridge::GetContext().layout;
-    ImVec2 defPos(std::max(4.0f, viewW - 46.0f), std::max(4.0f, viewH - 96.0f));
-    return ResolveSlotPos(layout.hideMenuPos, defPos, viewW, viewH, 32.0f, 32.0f);
 }
 
 static ImVec2 GetIslandPos(float width, float height, float viewW, float viewH) {
@@ -665,21 +635,10 @@ void RenderAimTab() {
         LabeledSlider("##aim_dist", "Aim Range", &aim.aimRangeMeters, 10.0f, 1000.0f, "%.0fm");
         aim.aimPower = std::clamp(aim.aimPower, 10.0f, 100.0f);
         LabeledSlider("##aim_power", "Aim Assist", &aim.aimPower, 10.0f, 100.0f, "%.0f%%");
-        LabeledSlider("##silent_dist", "Silent Distance", &aim.silentDistMeters, 10.0f, 1000.0f, "%.0fm");
         EndCard();
 
         ImGui::TableNextColumn();
         BeginCard("##aim_targeting", "TARGETING", 3, false);
-        ImGui::BeginDisabled(true);
-        bool alwaysOn = true;
-        ToggleSwitch("MULTIPLE TARGET", &alwaysOn, "ALWAYS ON", IM_COL32(175, 180, 195, 255));
-        ImGui::EndDisabled();
-
-        ToggleSwitch("Auto Fire", &aim.autoFire, nullptr, IM_COL32(175, 180, 195, 255));
-        ToggleSwitch("Silent Aim", &aim.silentAim, nullptr, IM_COL32(175, 180, 195, 255));
-        ToggleSwitch("Silent Aim v2", &aim.silentAimV2, nullptr, IM_COL32(175, 180, 195, 255));
-        ToggleSwitch("Silent 360", &aim.silent360, nullptr, IM_COL32(175, 180, 195, 255));
-        ToggleSwitch("Instant Aim", &aim.instantAim, nullptr, IM_COL32(175, 180, 195, 255));
         ToggleSwitch("Visible Check", &aim.visibleCheck, nullptr, IM_COL32(175, 180, 195, 255));
         ToggleSwitch("Ignore Knocked", &aim.ignoreKnocked, nullptr, IM_COL32(175, 180, 195, 255));
         ToggleSwitch("Target Bots", &aim.targetBots, nullptr, IM_COL32(175, 180, 195, 255));
@@ -702,31 +661,7 @@ void RenderMemoryTab() {
     if (ImGui::BeginTable("##memory_grid", cols, ImGuiTableFlags_SizingStretchSame)) {
         ImGui::TableNextColumn();
         BeginCard("##movement", "MOVEMENT", 0, false);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::WallV1, "Wall v1");
-        RenderFeatureRow(IosUIBridge::MemoryFeature::WallV2, "Wall v2");
-
-        bool fly = be ? be->GetFlyEnabled() : false;
-        if (ToggleSwitch("Fly", &fly, nullptr, IM_COL32(175, 180, 195, 255)) && be) {
-            be->SetFlyEnabled(fly);
-        }
-        bool underground = be ? be->GetUndergroundEnabled() : false;
-        if (ToggleSwitch("Underground", &underground, nullptr, IM_COL32(175, 180, 195, 255)) && be) {
-            be->SetUndergroundEnabled(underground);
-        }
-
         RenderFeatureRow(IosUIBridge::MemoryFeature::NoFallDamage, "No Fall");
-        RenderFeatureRow(IosUIBridge::MemoryFeature::SuperJump, "Super Jump");
-        RenderFeatureRow(IosUIBridge::MemoryFeature::SpiderClimb, "Spider Climb");
-        RenderFeatureRow(IosUIBridge::MemoryFeature::ZeroGravity, "Zero Gravity");
-        RenderFeatureRow(IosUIBridge::MemoryFeature::WaterWalk, "Water Walk");
-        EndCard();
-
-        BeginCard("##environment", "ENVIRONMENT", 2, false);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::NoGrass);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::ClearFog);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::ClearWater, "Clear Water");
-        RenderFeatureRow(IosUIBridge::MemoryFeature::InfiniteBreath, "Infinite Breath");
-        RenderFeatureRow(IosUIBridge::MemoryFeature::AntiCheatShield, "Anti-Cheat Shield");
         EndCard();
 
         BeginCard("##fast", "FAST MODE", 5, false);
@@ -738,35 +673,9 @@ void RenderMemoryTab() {
         if (ImGui::Button("Jump", ImVec2(std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f), 30.0f)) && be) {
             be->ExecuteTeleportAction("parachute_jump", "player", -1);
         }
-        RenderFeatureRow(IosUIBridge::MemoryFeature::FastParachuteV2, "Fast Parachute v2");
-        static bool fastShot = false, fastHeal = false;
-        RenderFeatureToggle("Fast Shot", &fastShot, IosUIBridge::MemoryFeature::FastShot);
-        RenderFeatureToggle("Fast Heal", &fastHeal, IosUIBridge::MemoryFeature::FastHeal);
         EndCard();
 
         ImGui::TableNextColumn();
-        BeginCard("##combat", "COMBAT", 1, false);
-        ToggleSwitch("Auto Fire", &ctx.aim.autoFire, nullptr, IM_COL32(175, 180, 195, 255));
-        RenderFeatureRow(IosUIBridge::MemoryFeature::MagicBullet, "Magic Bullet");
-        RenderFeatureRow(IosUIBridge::MemoryFeature::NoRecoil);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::AutoScope);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::HighScope);
-        EndCard();
-
-        BeginCard("##weapons", "WEAPONS", 3, false);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::AkmOneHit);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::M4a1OneHit);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::P90OneHit);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::QbzOneHit);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::Mp5OneHit);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::VectorOneHit);
-        EndCard();
-
-        BeginCard("##rpg", "GUN TO RPG", 3, false);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::DesertEagleRpg);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::AkmRpg);
-        EndCard();
-
         BeginCard("##unlimited", "UNLIMITED", 1, false);
         static bool unlimAmmo = false;
         RenderFeatureToggle("Ammo", &unlimAmmo, IosUIBridge::MemoryFeature::FastReload);
@@ -775,208 +684,6 @@ void RenderMemoryTab() {
         ImGui::EndTable();
     }
     ImGui::PopStyleVar(1);
-}
-
-void RenderItemPicker() {
-    auto* be = IosUIBridge::GetContext().backend;
-    std::string selected = be ? be->GetSelectedItemName() : "Choose item";
-    if (selected.empty()) selected = "Choose item";
-
-    ImGui::TextUnformatted("Item");
-    float availW = std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f);
-    ImGui::SetNextItemWidth(availW);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(availW, 70.0f), ImVec2(availW, 240.0f));
-
-    static char sItemSearch[256] = "";
-    static float sItemScrollY = 0.0f;
-    static bool sItemScrolling = false;
-
-    if (ImGui::BeginCombo("##item_type", selected.c_str(), ImGuiComboFlags_HeightLarge)) {
-        ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputTextWithHint("##item_search", "Search", sItemSearch, sizeof(sItemSearch));
-
-        if (ImGui::BeginChild("##item_type_list", ImVec2(0.0f, 140.0f), false, 0)) {
-            HandleFingerScroll(&sItemScrollY, &sItemScrolling, true);
-            auto items = be ? be->GetTeleportItems() : std::vector<IosUIBridge::PickerItemEntry>{};
-            int shown = 0;
-            for (const auto& it : items) {
-                if (!CaseInsensitiveContains(it.label, sItemSearch)) continue;
-                ++shown;
-                ImGui::PushID(it.label.c_str());
-                if (ImGui::Selectable(it.label.c_str(), false, ImGuiSelectableFlags_None)) {
-                    if (be) be->SelectTeleportItem(it.id);
-                    ImGui::CloseCurrentPopup();
-                }
-                ImGui::PopID();
-            }
-            if (shown == 0) {
-                ImGui::TextDisabled("No items");
-            }
-        }
-        ImGui::EndChild();
-        ImGui::EndCombo();
-    }
-}
-
-void RenderPlayerLock() {
-    auto* be = IosUIBridge::GetContext().backend;
-    BeginCard("##player_target_lock", "PLAYER", 0, false);
-
-    uint64_t lockedId = be ? be->GetLockedPlayerId() : 0;
-    auto players = be ? be->GetLockablePlayers() : std::vector<IosUIBridge::PlayerTargetEntry>{};
-    std::string preview = "Random enemy";
-    if (lockedId != 0) {
-        preview = "ID " + std::to_string(lockedId);
-        for (const auto& p : players) {
-            if (p.id == lockedId) {
-                preview = p.label;
-                break;
-            }
-        }
-    }
-
-    ImGui::TextUnformatted("Player");
-    float availW = std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f);
-    ImGui::SetNextItemWidth(availW);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(availW, 85.0f), ImVec2(availW, 250.0f));
-
-    static char sPlayerSearch[256] = "";
-    static float sPlayerScrollY = 0.0f;
-    static bool sPlayerScrolling = false;
-
-    if (ImGui::BeginCombo("##player_lock_picker", preview.c_str(), ImGuiComboFlags_HeightLarge)) {
-        ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputTextWithHint("##player_search", "Search", sPlayerSearch, sizeof(sPlayerSearch));
-
-        if (ImGui::Selectable("Random enemy", lockedId == 0)) {
-            if (be) be->SetLockedPlayerId(0);
-            ImGui::CloseCurrentPopup();
-        }
-
-        if (ImGui::BeginChild("##player_target_list", ImVec2(0.0f, 140.0f), false, 0)) {
-            HandleFingerScroll(&sPlayerScrollY, &sPlayerScrolling, true);
-            int shown = 0;
-            for (const auto& p : players) {
-                if (!CaseInsensitiveContains(p.label, sPlayerSearch)) continue;
-                ++shown;
-                ImGui::PushID(static_cast<int>(p.id));
-                if (ImGui::Selectable("##target_row", p.id == lockedId, ImGuiSelectableFlags_None, ImVec2(0.0f, 32.0f))) {
-                    if (be) be->SetLockedPlayerId(p.id);
-                    ImGui::CloseCurrentPopup();
-                }
-                ImVec2 rowMin = ImGui::GetItemRectMin();
-                ImDrawList* dl = ImGui::GetWindowDrawList();
-                dl->AddText(ImVec2(rowMin.x + 6.0f, rowMin.y + 4.0f), ImGui::GetColorU32(ImGuiCol_Text), p.label.c_str());
-                std::string idTxt = "ID " + std::to_string(p.id);
-                dl->AddText(ImVec2(rowMin.x + 6.0f, rowMin.y + 18.0f), ImGui::GetColorU32(ImGuiCol_TextDisabled), idTxt.c_str());
-                ImGui::PopID();
-            }
-            if (shown == 0) {
-                ImGui::TextDisabled("No players");
-            }
-        }
-        ImGui::EndChild();
-        ImGui::EndCombo();
-    }
-
-    bool canLock = (be != nullptr);
-    ImGui::BeginDisabled(!canLock);
-    if (ImGui::Button("Lock Player", ImVec2(availW, 34.0f)) && be) {
-        be->ExecuteTeleportAction("lock", "player", -1);
-    }
-    ImGui::EndDisabled();
-    EndCard();
-}
-
-void RenderTeleportTab() {
-    auto& ctx = IosUIBridge::GetContext();
-    auto* be = ctx.backend;
-    float availW = ImGui::GetContentRegionAvail().x;
-    int cols = (availW >= 480.0f) ? 2 : 1;
-
-    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(5.0f, 4.0f));
-    if (ImGui::BeginTable("##teleport_grid", cols, ImGuiTableFlags_SizingStretchSame)) {
-        ImGui::TableNextColumn();
-        BeginCard("##locations", "SAVED LOCATION", 5, false);
-        float bw = std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f);
-        if (ImGui::Button("Save", ImVec2(bw, 34.0f)) && be) {
-            be->ExecuteTeleportAction("save", "player", -1);
-        }
-        bool hasSaved = be ? be->HasSavedLocation() : false;
-        ImGui::BeginDisabled(!hasSaved);
-        if (ImGui::Button("Teleport", ImVec2(bw, 34.0f)) && be) {
-            be->ExecuteTeleportAction("saved", "player", -1);
-        }
-        ImGui::EndDisabled();
-        EndCard();
-
-        BeginCard("##items", "ITEMS", 4, false);
-        RenderItemPicker();
-        bool hasItem = be ? !be->GetSelectedItemName().empty() : false;
-        ImGui::BeginDisabled(!hasItem);
-        if (ImGui::Button("Teleport##item_tp", ImVec2(std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f), 34.0f)) && be) {
-            be->ExecuteTeleportAction("item", "player", -1);
-        }
-        ImGui::EndDisabled();
-        EndCard();
-
-        BeginCard("##tools", "TOOLS", 2, false);
-        bool mapTp = be ? be->GetMapTeleportEnabled() : false;
-        if (ToggleSwitch("Map Teleport", &mapTp, nullptr, IM_COL32(175, 180, 195, 255)) && be) {
-            be->SetMapTeleportEnabled(mapTp);
-        }
-        ToggleSwitch("Floating Icons", &ctx.layout.showTeleportIcons, nullptr, IM_COL32(175, 180, 195, 255));
-        EndCard();
-
-        ImGui::TableNextColumn();
-        BeginCard("##locks", "LOCKS", 3, false);
-        bool enemyLock = be ? be->IsLockActive("player") : false;
-        if (ToggleSwitch("Enemy Lock", &enemyLock, nullptr, IM_COL32(175, 180, 195, 255)) && be) {
-            be->ExecuteTeleportAction(enemyLock ? "lock" : "unlock", "player", -1);
-        }
-        bool planeFire = be ? be->GetPlaneFireEnabled() : false;
-        if (ToggleSwitch("Plane Fire", &planeFire, nullptr, IM_COL32(175, 180, 195, 255)) && be) {
-            be->SetPlaneFireEnabled(planeFire);
-        }
-        bool airLock = be ? be->IsLockActive("airplane") : false;
-        if (ToggleSwitch("Airplane Lock", &airLock, nullptr, IM_COL32(175, 180, 195, 255)) && be) {
-            be->ExecuteTeleportAction(airLock ? "lock" : "unlock", "airplane", -1);
-        }
-        if (ImGui::Button("Jump", ImVec2(std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f), 30.0f)) && be) {
-            be->ExecuteTeleportAction("parachute_jump", "player", -1);
-        }
-        bool ignBots = be ? be->GetIgnoreBotsInLock() : false;
-        if (ToggleSwitch("Ignore Bots", &ignBots, nullptr, IM_COL32(175, 180, 195, 255)) && be) {
-            be->SetIgnoreBotsInLock(ignBots);
-        }
-        EndCard();
-
-        RenderPlayerLock();
-        ImGui::EndTable();
-    }
-    ImGui::PopStyleVar(1);
-}
-
-void RenderHandTab() {
-    auto* be = IosUIBridge::GetContext().backend;
-    BeginCard("##hand_weapon", "HAND", 3, true);
-    int curSlot = be ? be->GetSelectedHandSlot() : -1;
-    bool handActive = be ? be->IsHandOverrideEnabled() : false;
-
-    static const char* kHandNames[] = {"AWM", "RPG", "BARRETT", "BOW", "CROSSBOW"};
-    for (int i = 0; i < 5; ++i) {
-        if (i == 1 || i == 4) continue; // RPG & CROSSBOW skipped in binary
-        const char* label = be ? be->GetHandSlotName(i) : kHandNames[i];
-        bool checked = (handActive && curSlot == i);
-        if (ToggleSwitch(label, &checked, nullptr, IM_COL32(175, 180, 195, 255)) && be) {
-            if (checked) {
-                be->SelectHandSlot(i);
-            } else {
-                be->DisableHandOverride();
-            }
-        }
-    }
-    EndCard();
 }
 
 void RenderSettingsTab() {
@@ -1017,7 +724,6 @@ void RenderSettingsTab() {
         ImGui::Dummy(ImVec2(bw, 1.0f));
 
         ToggleSwitch("Feature Icons", &ctx.layout.showFeatureIcons, nullptr, IM_COL32(175, 180, 195, 255));
-        ToggleSwitch("Teleport Icons", &ctx.layout.showTeleportIcons, nullptr, IM_COL32(175, 180, 195, 255));
 
         if (ImGui::Button("Reset floating positions", ImVec2(std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f), 30.0f))) {
             ctx.layout.islandPosX = -1.0f;
@@ -1026,12 +732,6 @@ void RenderSettingsTab() {
                 ctx.layout.featurePos[i][0] = -1.0f;
                 ctx.layout.featurePos[i][1] = -1.0f;
             }
-            for (int i = 0; i < 5; ++i) {
-                ctx.layout.teleportPos[i][0] = -1.0f;
-                ctx.layout.teleportPos[i][1] = -1.0f;
-            }
-            ctx.layout.autoFirePos[0] = ctx.layout.autoFirePos[1] = -1.0f;
-            ctx.layout.hideMenuPos[0] = ctx.layout.hideMenuPos[1] = -1.0f;
         }
         EndCard();
 
@@ -1156,19 +856,20 @@ void RenderMainMenu() {
         layout.menuPosX = winPosTmp.x;
         layout.menuPosY = winPosTmp.y;
 
-        // 6-tab bar
+        // 4-tab bar (Teleport and Hand tabs hidden)
         ImGui::SetCursorScreenPos(ImVec2(headerPos.x, headerPos.y + 44.0f));
         ImVec2 tabBarPos = ImGui::GetCursorScreenPos();
         float tabW = std::max(availW, 60.0f);
         dl->AddRectFilled(tabBarPos, ImVec2(tabBarPos.x + tabW, tabBarPos.y + 32.0f), IM_COL32(10, 14, 22, 58), 9.0f);
 
-        bool compactTabs = (tabW < 390.0f);
-        static const char* kFullTabs[6] = {"ESP", "Aim", "Memory", "Teleport", "Hand", "Settings"};
-        static const char* kCompactTabs[6] = {"ESP", "Aim", "Mem", "TP", "Hand", "Set"};
-        float btnW = tabW / 6.0f;
+        bool compactTabs = (tabW < 340.0f);
+        static const char* kFullTabs[4] = {"ESP", "Aim", "Memory", "Settings"};
+        static const char* kCompactTabs[4] = {"ESP", "Aim", "Mem", "Set"};
+        float btnW = tabW / 4.0f;
+        layout.activeTab = std::clamp(layout.activeTab, 0, 3);
 
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 6.0f));
-        for (int i = 0; i < 6; ++i) {
+        for (int i = 0; i < 4; ++i) {
             if (i > 0) ImGui::SameLine(0.0f, 0.0f);
             bool sel = (layout.activeTab == i);
             ImGui::PushStyleColor(ImGuiCol_Button, sel ? ImVec4(0.16f, 0.69f, 0.72f, 0.32f) : ImVec4(0, 0, 0, 0));
@@ -1193,9 +894,7 @@ void RenderMainMenu() {
                 case 0: RenderEspTab(); break;
                 case 1: RenderAimTab(); break;
                 case 2: RenderMemoryTab(); break;
-                case 3: RenderTeleportTab(); break;
-                case 4: RenderHandTab(); break;
-                case 5: RenderSettingsTab(); break;
+                case 3: RenderSettingsTab(); break;
             }
         }
         ImGui::EndChild();
@@ -1435,33 +1134,25 @@ void RenderFloatingHUD() {
     float w = io.DisplaySize.x;
     float h = io.DisplaySize.y;
 
-    // 4 quick Feature Icon pills (94x30) when menu is closed
+    // Quick Feature Icon pills (Fast Move & No Fall only; Wallhack & Fly hidden)
     if (layout.showFeatureIcons && !layout.menuOpen) {
-        static const int kFeatIcons[4] = {9, 10, 11, 12};
-        static const char* kFeatLabels[4] = {"Fast Move", "No Fall", "Wallhack", "Fly"};
-        static const ImU32 kFeatColors[4] = {
+        static const int kFeatIcons[2] = {9, 10};
+        static const char* kFeatLabels[2] = {"Fast Move", "No Fall"};
+        static const ImU32 kFeatColors[2] = {
             IM_COL32(70, 221, 225, 255),
             IM_COL32(135, 237, 190, 255),
-            IM_COL32(185, 158, 255, 255),
-            IM_COL32(103, 181, 255, 255),
         };
         ImFont* font = ImGui::GetFont();
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 2; ++i) {
             bool active = false;
             bool pending = false;
             if (ctx.backend) {
                 if (i == 0) {
                     auto st = ctx.backend->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::SpeedHack);
                     active = st.enabled; pending = st.pending;
-                } else if (i == 1) {
+                } else {
                     auto st = ctx.backend->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::NoFallDamage);
                     active = st.enabled; pending = st.pending;
-                } else if (i == 2) {
-                    auto st1 = ctx.backend->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::WallV1);
-                    auto st2 = ctx.backend->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::WallV2);
-                    active = st1.enabled || st2.enabled; pending = st1.pending || st2.pending;
-                } else {
-                    active = ctx.backend->GetFlyEnabled();
                 }
             }
             ImVec2 pos = GetFeatureIconPos(i, w, h);
@@ -1472,50 +1163,6 @@ void RenderFloatingHUD() {
             ImU32 dotCol = pending ? IM_COL32(255, 198, 107, 255) : (active ? kFeatColors[i] : IM_COL32(91, 109, 129, 180));
             fg->AddCircleFilled(ImVec2(maxPt.x - 8.0f, pos.y + 8.0f), 2.5f, dotCol, 16);
         }
-    }
-
-    // 5 circular Teleport Icon buttons (30x30) when menu is closed
-    if (layout.showTeleportIcons && !layout.menuOpen) {
-        static const int kTpIcons[5] = {2, 3, 4, 5, 8};
-        static const ImU32 kTpColors[5] = {
-            IM_COL32(70, 221, 225, 255),
-            IM_COL32(135, 237, 190, 255),
-            IM_COL32(185, 158, 255, 255),
-            IM_COL32(103, 181, 255, 255),
-            IM_COL32(255, 139, 158, 255),
-        };
-        for (int i = 0; i < 5; ++i) {
-            bool active = false;
-            if (ctx.backend) {
-                if (i == 0) active = ctx.backend->HasSavedLocation();
-                else if (i == 1) active = ctx.backend->IsLockActive("player");
-                else if (i == 2) active = ctx.backend->IsLockActive("airplane");
-                else if (i == 3) active = !ctx.backend->GetSelectedItemName().empty();
-                else active = ctx.backend->HasSavedLocation();
-            }
-            ImVec2 pos = GetTeleportIconPos(i, w, h);
-            ImVec2 maxPt(pos.x + 30.0f, pos.y + 30.0f);
-            DrawBadgeBox(fg, pos, maxPt, active, kTpColors[i]);
-            DrawVectorIcon(fg, kTpIcons[i], ImVec2(pos.x + 15.0f, pos.y + 15.0f),
-                           active ? kTpColors[i] : IM_COL32(102, 120, 141, 200), 20.0f);
-            if (active) {
-                fg->AddCircleFilled(ImVec2(maxPt.x - 6.0f, pos.y + 6.0f), 2.0f, kTpColors[i], 12);
-            }
-        }
-    }
-
-    // Floating Fly Up (^^) + Fly Down (vv) vertical control pills (visible ONLY when Fly is enabled)
-    const bool flyOn = ctx.backend && ctx.backend->GetFlyEnabled();
-    if (flyOn && !layout.menuOpen) {
-        ImVec2 afPos = GetAutoFireButtonPos(w, h);
-        bool upHeld = (gDraggedHudKind == 2);
-        DrawBadgeBox(fg, afPos, ImVec2(afPos.x + 32.0f, afPos.y + 32.0f), upHeld, IM_COL32(70, 221, 225, 255));
-        DrawVectorIcon(fg, 6, ImVec2(afPos.x + 16.0f, afPos.y + 16.0f), IM_COL32(70, 221, 225, 255), 18.0f);
-
-        ImVec2 hmPos = GetHideMenuButtonPos(w, h);
-        bool downHeld = (gDraggedHudKind == 3);
-        DrawBadgeBox(fg, hmPos, ImVec2(hmPos.x + 32.0f, hmPos.y + 32.0f), downHeld, IM_COL32(103, 181, 255, 255));
-        DrawVectorIcon(fg, 7, ImVec2(hmPos.x + 16.0f, hmPos.y + 16.0f), IM_COL32(103, 181, 255, 255), 18.0f);
     }
 }
 
@@ -1554,24 +1201,9 @@ bool IsPointInMenuOrFloatingHUD(float x, float y, float viewW, float viewH) {
         return true;
     }
 
-    const bool flyOn = ctx.backend && ctx.backend->GetFlyEnabled();
-    if (flyOn && !layout.menuOpen) {
-        ImVec2 af = GetAutoFireButtonPos(viewW, viewH);
-        if (RectContains(af, 32.0f, 32.0f, x, y)) return true;
-
-        ImVec2 hm = GetHideMenuButtonPos(viewW, viewH);
-        if (RectContains(hm, 32.0f, 32.0f, x, y)) return true;
-    }
-
     if (layout.showFeatureIcons && !layout.menuOpen) {
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 2; ++i) {
             if (RectContains(GetFeatureIconPos(i, viewW, viewH), 94.0f, 30.0f, x, y)) return true;
-        }
-    }
-
-    if (layout.showTeleportIcons && !layout.menuOpen) {
-        for (int i = 0; i < 5; ++i) {
-            if (RectContains(GetTeleportIconPos(i, viewW, viewH), 30.0f, 30.0f, x, y)) return true;
         }
     }
 
@@ -1584,41 +1216,14 @@ bool IsPointInMenuOrFloatingHUD(float x, float y, float viewW, float viewH) {
 void OnTouchBegan(float x, float y, float viewW, float viewH) {
     auto& ctx = IosUIBridge::GetContext();
     auto& layout = ctx.layout;
-    auto* be = ctx.backend;
     gDraggedHudKind = -1;
     gDragMoved = false;
     gDragTouchStart = ImVec2(x, y);
 
-    const bool flyOn = be && be->GetFlyEnabled();
-    if (flyOn && !layout.menuOpen) {
-        ImVec2 af = GetAutoFireButtonPos(viewW, viewH);
-        if (RectContains(af, 32.0f, 32.0f, x, y)) {
-            gDraggedHudKind = 2;
-            gDragOrigPos = af;
-            be->SetFlyVerticalInput(1.0f);
-            return;
-        }
-
-        ImVec2 hm = GetHideMenuButtonPos(viewW, viewH);
-        if (RectContains(hm, 32.0f, 32.0f, x, y)) {
-            gDraggedHudKind = 3;
-            gDragOrigPos = hm;
-            be->SetFlyVerticalInput(-1.0f);
-            return;
-        }
-    }
-
     if (layout.showFeatureIcons && !layout.menuOpen) {
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 2; ++i) {
             ImVec2 fp = GetFeatureIconPos(i, viewW, viewH);
             if (RectContains(fp, 94.0f, 30.0f, x, y)) { gDraggedHudKind = 10 + i; gDragOrigPos = fp; return; }
-        }
-    }
-
-    if (layout.showTeleportIcons && !layout.menuOpen) {
-        for (int i = 0; i < 5; ++i) {
-            ImVec2 tp = GetTeleportIconPos(i, viewW, viewH);
-            if (RectContains(tp, 30.0f, 30.0f, x, y)) { gDraggedHudKind = 20 + i; gDragOrigPos = tp; return; }
         }
     }
 
@@ -1628,8 +1233,6 @@ void OnTouchBegan(float x, float y, float viewW, float viewH) {
 
 void OnTouchMoved(float x, float y, float viewW, float viewH) {
     if (gDraggedHudKind < 0) return;
-    // Fly Up/Down buttons are hold controls; keep them stationary while held
-    if (gDraggedHudKind == 2 || gDraggedHudKind == 3) return;
 
     float dx = x - gDragTouchStart.x;
     float dy = y - gDragTouchStart.y;
@@ -1639,22 +1242,18 @@ void OnTouchMoved(float x, float y, float viewW, float viewH) {
     }
     if (!gDragMoved) return;
 
-    float w = 30.0f;
+    float w = 94.0f;
     float h = 30.0f;
     if (gDraggedHudKind == 1) { w = 114.0f; h = 30.0f; }
-    else if (gDraggedHudKind >= 10 && gDraggedHudKind <= 13) { w = 94.0f; h = 30.0f; }
 
     auto& layout = IosUIBridge::GetContext().layout;
     float nx = std::clamp(gDragOrigPos.x + dx, 4.0f, std::max(4.0f, viewW - w - 4.0f));
     float ny = std::clamp(gDragOrigPos.y + dy, 4.0f, std::max(4.0f, viewH - h - 4.0f));
 
     if (gDraggedHudKind == 1) { layout.islandPosX = nx; layout.islandPosY = ny; }
-    else if (gDraggedHudKind >= 10 && gDraggedHudKind <= 13) {
+    else if (gDraggedHudKind >= 10 && gDraggedHudKind <= 11) {
         int i = gDraggedHudKind - 10;
         layout.featurePos[i][0] = nx; layout.featurePos[i][1] = ny;
-    } else if (gDraggedHudKind >= 20 && gDraggedHudKind <= 24) {
-        int i = gDraggedHudKind - 20;
-        layout.teleportPos[i][0] = nx; layout.teleportPos[i][1] = ny;
     }
 }
 
@@ -1663,50 +1262,19 @@ void OnTouchEnded(float x, float y, float viewW, float viewH) {
     auto& ctx = IosUIBridge::GetContext();
     auto* be = ctx.backend;
 
-    if (gDraggedHudKind == 2 || gDraggedHudKind == 3) {
-        if (be) be->SetFlyVerticalInput(0.0f);
-        gDraggedHudKind = -1;
-        gDragMoved = false;
-        return;
-    }
-
     if (gDraggedHudKind >= 0 && !gDragMoved) {
         if (gDraggedHudKind == 1) {
             ctx.layout.menuOpen = !ctx.layout.menuOpen;
-        } else if (gDraggedHudKind >= 10 && gDraggedHudKind <= 13 && be) {
+        } else if (gDraggedHudKind >= 10 && gDraggedHudKind <= 11 && be) {
             int idx = gDraggedHudKind - 10;
             if (idx == 0) {
                 bool nxt = !be->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::SpeedHack).enabled;
                 be->RequestMemoryFeature(IosUIBridge::MemoryFeature::SpeedHack, nxt, ctx.layout.speedMultiplier);
                 PushToast(nxt ? "Fast Move ON" : "Fast Move OFF");
-            } else if (idx == 1) {
+            } else {
                 bool nxt = !be->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::NoFallDamage).enabled;
                 be->RequestMemoryFeature(IosUIBridge::MemoryFeature::NoFallDamage, nxt, 1.0f);
                 PushToast(nxt ? "No Fall ON" : "No Fall OFF");
-            } else if (idx == 2) {
-                bool nxt = !(be->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::WallV1).enabled ||
-                             be->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::WallV2).enabled);
-                be->RequestMemoryFeature(IosUIBridge::MemoryFeature::WallV1, nxt, 1.0f);
-                be->RequestMemoryFeature(IosUIBridge::MemoryFeature::WallV2, nxt, 1.0f);
-                PushToast(nxt ? "Wallhack v1 + v2 ON" : "Wallhack v1 + v2 OFF");
-            } else {
-                bool nxt = !be->GetFlyEnabled();
-                be->SetFlyEnabled(nxt);
-                PushToast(nxt ? "Fly ON" : "Fly OFF");
-            }
-        } else if (gDraggedHudKind >= 20 && gDraggedHudKind <= 24 && be) {
-            int idx = gDraggedHudKind - 20;
-            if (idx == 0) be->ExecuteTeleportAction("save", "player", -1);
-            else if (idx == 1) {
-                bool act = be->IsLockActive("player");
-                be->ExecuteTeleportAction(act ? "unlock" : "lock", "player", -1);
-            } else if (idx == 2) {
-                bool act = be->IsLockActive("airplane");
-                be->ExecuteTeleportAction(act ? "unlock" : "lock", "airplane", -1);
-            } else if (idx == 3) {
-                be->ExecuteTeleportAction("item", "player", -1);
-            } else {
-                be->ExecuteTeleportAction("saved", "player", -1);
             }
         }
     }
@@ -1715,10 +1283,6 @@ void OnTouchEnded(float x, float y, float viewW, float viewH) {
 }
 
 void OnTouchCancelled() {
-    auto* be = IosUIBridge::GetContext().backend;
-    if ((gDraggedHudKind == 2 || gDraggedHudKind == 3) && be) {
-        be->SetFlyVerticalInput(0.0f);
-    }
     gDraggedHudKind = -1;
     gDragMoved = false;
 }

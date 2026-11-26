@@ -355,41 +355,27 @@ private:
 
         const float assistPct = std::clamp(aim.aimPower, 10.0f, 100.0f);
         const int speedOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::SpeedHack).enabled ? 1 : 0;
-        const int wallOn = (MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::WallV1).enabled ||
-                            MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::WallV2).enabled) ? 1 : 0;
         const int noFallOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::NoFallDamage).enabled ? 1 : 0;
-        const int flyOn = MemoryCheats::GetFlyEnabled() ? 1 : 0;
-        const int ugOn = MemoryCheats::GetUndergroundEnabled() ? 1 : 0;
-        const int noGrassOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::NoGrass).enabled ? 1 : 0;
         const int fastParaOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::FastParachute).enabled ? 1 : 0;
         const int camWideOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::IpadView).enabled ? 1 : 0;
-        const int clearFogOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::ClearFog).enabled ? 1 : 0;
-        const int noRecoilOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::NoRecoil).enabled ? 1 : 0;
-        const int superJumpOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::SuperJump).enabled ? 1 : 0;
-        const int zeroGravOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::ZeroGravity).enabled ? 1 : 0;
-        const float flyV = flyVerticalInput_.load(std::memory_order_relaxed);
 
         char buf[1024];
         std::snprintf(
             buf, sizeof(buf),
-            "%d %d %.2f %.2f %.2f %d %d %d %.2f %.2f %.2f %.2f 0 %d %d 1 %.2f %.2f 0 0 %.2f %.2f %d %.2f 1 %d %d %d %.2f %d %.2f %d %d %d %d %d %d %d %d %d %.2f %d %d\n",
+            "%d %d %.2f %.2f %.2f %d %d %d %.2f %.2f %.2f 0 0 0 0 1 %.2f %.2f 0 0 %.2f %.2f 0 %.2f 1 %d %d %d %.2f %d %.2f 0 %d 0 0 0 %d %d 0 0 0.00 0 0\n",
             aim.masterAim ? 1 : 0,                                  // c[0]
             aim.triggerMode,                                        // c[1]
             aim.fovRadiusPx,                                        // c[2]
-            aim.instantAim ? 1.0f : aim.smoothness,                 // c[3]
-            aim.instantAim ? 100.0f : assistPct,                    // c[4] Aim Assist 10..100%
+            aim.smoothness,                                         // c[3]
+            assistPct,                                              // c[4] Aim Assist 10..100%
             aim.visibleCheck ? 1 : 0,                               // c[5]
             aim.ignoreKnocked ? 1 : 0,                              // c[6]
             aim.targetBone,                                         // c[7]
             lastW_,                                                 // c[8]
             lastH_,                                                 // c[9]
             aim.aimRangeMeters,                                     // c[10]
-            aim.silentDistMeters,                                   // c[11]
-            (aim.silentAim || aim.silentAimV2) ? 1 : 0,             // c[13]
-            aim.silent360 ? 1 : 0,                                  // c[14]
             fbW, fbH,                                               // c[16..17]
             fbW, fbH,                                               // c[20..21]
-            aim.autoFire ? 1 : 0,                                   // c[22]
             std::clamp(aim.aimRangeMeters, 5.0f, 500.0f),           // c[23]
             (!aim.targetBots || esp.hideBots) ? 1 : 0,              // c[25]
             esp.skeleton ? 1 : 0,                                   // c[26]
@@ -397,18 +383,9 @@ private:
             esp.cameraFovDeg,                                       // c[28]
             speedOn,                                                // c[29]
             lay.speedMultiplier,                                    // c[30]
-            wallOn,                                                 // c[31]
             noFallOn,                                               // c[32]
-            flyOn,                                                  // c[33]
-            ugOn,                                                   // c[34]
-            noGrassOn,                                              // c[35]
             fastParaOn,                                             // c[36]
-            camWideOn,                                              // c[37]
-            clearFogOn,                                             // c[38]
-            noRecoilOn,                                             // c[39]
-            flyV,                                                   // c[40] Fly Up/Down (-1..+1)
-            superJumpOn,                                            // c[41]
-            zeroGravOn);                                            // c[42]
+            camWideOn);                                             // c[37]
 
         const std::string tmpPath = cfgPath_ + ".new";
         FILE* fp = std::fopen(tmpPath.c_str(), "wb");
