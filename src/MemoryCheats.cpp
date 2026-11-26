@@ -1082,6 +1082,13 @@ void Tick() {
 
             switch (entry.state) {
                 case AmmoState::Idle:
+                    // Dynamically track the highest value seen as maxMag.
+                    // This handles weapon swaps in the same slot: if the player
+                    // picks up a UMP45 (45 rounds) where an AKM (30) was, the
+                    // next IDLE ticks will raise maxMag to 45 before any reload.
+                    if (cur > 0 && cur <= 200 && cur > entry.maxMag) {
+                        entry.maxMag = cur;
+                    }
                     if (cur == 0) {
                         entry.state = AmmoState::Empty;
                     }
