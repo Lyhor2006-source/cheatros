@@ -116,20 +116,21 @@ size_t ApplyDoubleToTargets(
 // Specific scanners decoded from verified binary patterns
 std::vector<uintptr_t> ScanWallV1Addrs() {
     auto regions = QueryPreferredRegions(MachMemory::GetRegionMode());
-    auto hits = MachMemory::ScanDword(regions, 0x3089705fU, 50);
+    auto hits = MachMemory::ScanDword(regions, 0x3089705fU, 32);
     if (!hits.empty()) {
         return hits;
     }
 
+    // Fallback group only over strict heap regions with tight match cap to prevent false positives
+    auto heapOnly = MachMemory::QueryRegions(MachMemory::RegionMode::WritableOnly);
     const std::vector<MachMemory::SearchItem> grp = {
         MachMemory::SearchItem::Dword(69),
         MachMemory::SearchItem::Dword(3),
         MachMemory::SearchItem::Dword(4),
     };
-    hits = MachMemory::GroupScan(regions, grp, 1, 24, 64, true);
-    if (hits.empty()) {
-        auto allRegions = MachMemory::QueryRegions(MachMemory::RegionMode::All);
-        hits = MachMemory::GroupScan(allRegions, grp, 1, 24, 64, true);
+    hits = MachMemory::GroupScan(heapOnly, grp, 1, 24, 16, true);
+    if (hits.size() > 8) {
+        hits.clear();
     }
     return hits;
 }
@@ -163,20 +164,23 @@ std::vector<uintptr_t> ScanNoGrassAddrs() {
                 }
                 if (neighborOk) {
                     hits.push_back(cur + off);
-                    if (hits.size() >= 100) return hits;
+                    if (hits.size() >= 32) return hits;
                 }
             }
         }
     }
 
     if (hits.empty()) {
-        auto allRegs = MachMemory::QueryRegions(MachMemory::RegionMode::All);
+        auto heapRegs = MachMemory::QueryRegions(MachMemory::RegionMode::WritableOnly);
         hits = MachMemory::ProximityScan(
-            allRegs,
+            heapRegs,
             MachMemory::SearchItem::Dword(1),
             MachMemory::SearchItem::Dword(5122),
             512,
-            100);
+            17);
+        if (hits.size() > 16) {
+            hits.clear();
+        }
     }
     return hits;
 }
@@ -210,7 +214,7 @@ std::vector<uintptr_t> ScanFastParachuteAddrs() {
                 }
                 if (neighborOk) {
                     hits.push_back(cur + off);
-                    if (hits.size() >= 64) return hits;
+                    if (hits.size() >= 32) return hits;
                 }
             }
         }
@@ -577,37 +581,23 @@ void ExecuteTask(const WorkerTask& task) {
                 regions,
                 {MachMemory::SearchItem::Double(10.1),
                  MachMemory::SearchItem::Double(1.0)},
-                1, 512, 64, true);
-            if (!hits.empty()) {
+                1, 512, 16, true);
+            if (hits.size() <= 16) {
                 matched = hits.size();
                 applied = ApplyDoubleToTargets(newPatches, hits, 4.2);
-            } else {
-                hits = MachMemory::GroupScan(
-                    regions,
-                    {MachMemory::SearchItem::Double(0.03333333333333333),
-                     MachMemory::SearchItem::Double(0.8)},
-                    1, 512, 64, true);
-                matched = hits.size();
-                applied = ApplyDoubleToTargets(newPatches, hits, 4.0);
             }
             break;
         }
         case MF::FastHeal: {
+            // Only patch the Double duration slots {0, 1, 3}; never overwrite 4-byte Dword(12) with 8-byte Double
             auto hits = MachMemory::GroupScanMany(
                 regions,
                 {MachMemory::SearchItem::Double(8.0),
                  MachMemory::SearchItem::Double(6.0),
                  MachMemory::SearchItem::Dword(12),
                  MachMemory::SearchItem::Double(4.0)},
-                {0, 1, 2, 3},
-                512, 64, true);
-            if (hits.empty()) {
-                hits = MachMemory::GroupScan(
-                    regions,
-                    {MachMemory::SearchItem::Double(8.0),
-                     MachMemory::SearchItem::Dword(1)},
-                    1, 400, 64, true);
-            }
+                {0, 1, 3},
+                512, 16, true);
             matched = hits.size();
             applied = ApplyDoubleToTargets(newPatches, hits, 0.1);
             break;
@@ -621,7 +611,7 @@ void ExecuteTask(const WorkerTask& task) {
                  MachMemory::SearchItem::Double(34.0),
                  MachMemory::SearchItem::Double(1.1),
                  MachMemory::SearchItem::Double(-2000.0)},
-                2, 512, 64, false);
+                2, 512, 16, true);
             matched = hits.size();
             applied = ApplyDoubleToTargets(newPatches, hits, static_cast<double>(mult));
             char buf[64];
@@ -649,7 +639,7 @@ void ExecuteTask(const WorkerTask& task) {
                 regions,
                 {MachMemory::SearchItem::FloatBits(0xbf7dU),
                  MachMemory::SearchItem::Float(450.0f)},
-                1, 512, 16, false);
+                1, 512, 16, true);
             matched = hits.size();
             applied = ApplyFloatToTargets(newPatches, hits, 180.0f);
             newFreezeAddrs = std::move(hits);
@@ -750,8 +740,8 @@ void ScanAndApplyUnderground(bool enable) {
         gUndergroundPatches.RestoreAll();
         return;
     }
-    auto regions = MachMemory::QueryRegions(MachMemory::RegionMode::All);
-    auto qHits = MachMemory::ScanQword(regions, 0x656a624f00687072ULL, 250000);
+    auto regions = MachMemory::QueryRegions(MachMemory::RegionMode::Auto);
+    auto qHits = MachMemory::ScanQword(regions, 0x656a624f00687072ULL, 512);
     std::vector<uintptr_t> animAddrs;
     for (uintptr_t addr : qHits) {
         uint64_t a = 0;

@@ -6,9 +6,13 @@
 #include <cstring>
 
 #if defined(__APPLE__)
+#include <dlfcn.h>
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
 #include <mach/mach.h>
 #include <mach/mach_init.h>
 #include <mach/vm_map.h>
+#include <mach/vm_statistics.h>
 #endif
 
 namespace MachMemory {
@@ -18,6 +22,118 @@ namespace {
 std::atomic<int> gRegionMode{static_cast<int>(RegionMode::Auto)};
 constexpr size_t kReadChunkBytes = 65536;
 constexpr size_t kStepBytes = 4;
+
+#if defined(__APPLE__)
+struct ImageSegmentRange {
+    uintptr_t start = 0;
+    uintptr_t end = 0;
+    bool isOwnDylib = false;
+    bool isAppBinary = false;
+};
+
+const void* GetOwnImageBase() {
+    Dl_info info{};
+    if (dladdr(reinterpret_cast<const void*>(&QueryRegions), &info) && info.dli_fbase) {
+        return info.dli_fbase;
+    }
+    return nullptr;
+}
+
+std::vector<ImageSegmentRange> CollectLoadedSegments() {
+    std::vector<ImageSegmentRange> segs;
+    const void* ownBase = GetOwnImageBase();
+    const uint32_t count = _dyld_image_count();
+
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto* hdr = reinterpret_cast<const struct mach_header_64*>(_dyld_get_image_header(i));
+        if (!hdr || hdr->magic != MH_MAGIC_64) continue;
+
+        const uintptr_t slide = static_cast<uintptr_t>(_dyld_get_image_vmaddr_slide(i));
+        const char* name = _dyld_get_image_name(i);
+        const bool isOwn = (ownBase != nullptr && reinterpret_cast<const void*>(hdr) == ownBase);
+        const bool isApp = (!isOwn && name != nullptr && std::strstr(name, ".app/") != nullptr);
+
+        const uint8_t* ptr = reinterpret_cast<const uint8_t*>(hdr + 1);
+        for (uint32_t c = 0; c < hdr->ncmds; ++c) {
+            const auto* cmd = reinterpret_cast<const struct load_command*>(ptr);
+            if (cmd->cmd == LC_SEGMENT_64 && cmd->cmdsize >= sizeof(struct segment_command_64)) {
+                const auto* sc = reinterpret_cast<const struct segment_command_64*>(cmd);
+                if (sc->vmsize > 0 && sc->vmaddr > 0) {
+                    const uintptr_t sStart = static_cast<uintptr_t>(sc->vmaddr) + slide;
+                    const uintptr_t sEnd = sStart + static_cast<uintptr_t>(sc->vmsize);
+                    if (sEnd > sStart) {
+                        segs.push_back(ImageSegmentRange{sStart, sEnd, isOwn, isApp});
+                    }
+                }
+            }
+            if (cmd->cmdsize == 0) break;
+            ptr += cmd->cmdsize;
+        }
+    }
+    return segs;
+}
+
+inline bool IsMallocUserTag(unsigned int tag) {
+    // VM_MEMORY_MALLOC* heap tags (1, 2, 3, 7, 11) matching RyomenXCracked mask 0x88e
+    return tag == VM_MEMORY_MALLOC ||
+           tag == VM_MEMORY_MALLOC_SMALL ||
+           tag == VM_MEMORY_MALLOC_LARGE ||
+           tag == VM_MEMORY_MALLOC_LARGE_REUSABLE ||
+           tag == VM_MEMORY_MALLOC_NANO;
+}
+
+bool IsAddressSafeToPatch(uintptr_t addr, size_t size) {
+    if (!addr || size == 0 || addr < 0x100000000ULL || addr > 0x700000000000ULL) {
+        return false;
+    }
+
+    // Never touch code/data inside own dylib or system frameworks
+    Dl_info dlInfo{};
+    if (dladdr(reinterpret_cast<const void*>(addr), &dlInfo) != 0) {
+        if (dlInfo.dli_fbase == GetOwnImageBase()) {
+            return false;
+        }
+        if (dlInfo.dli_fname && std::strstr(dlInfo.dli_fname, ".app/") == nullptr) {
+            return false;
+        }
+    }
+
+    vm_address_t qAddr = static_cast<vm_address_t>(addr);
+    vm_size_t qSize = 0;
+    natural_t depth = 0;
+    vm_region_submap_info_data_64_t info{};
+    while (true) {
+        mach_msg_type_number_t count = VM_REGION_SUBMAP_INFO_COUNT_64;
+        kern_return_t kr = vm_region_recurse_64(
+            mach_task_self(),
+            &qAddr,
+            &qSize,
+            &depth,
+            reinterpret_cast<vm_region_info_t>(&info),
+            &count);
+        if (kr != KERN_SUCCESS || qSize == 0) return false;
+        if (info.is_submap) {
+            ++depth;
+            continue;
+        }
+        break;
+    }
+
+    const uintptr_t rStart = static_cast<uintptr_t>(qAddr);
+    const uintptr_t rEnd = rStart + static_cast<uintptr_t>(qSize);
+    if (addr < rStart || addr + size > rEnd) {
+        return false;
+    }
+    if ((info.protection & (VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE)) !=
+        (VM_PROT_READ | VM_PROT_WRITE)) {
+        return false;
+    }
+    if (info.user_tag == 30 || info.user_tag >= 60) {
+        return false;
+    }
+    return true;
+}
+#endif
 
 inline size_t ItemSize(const SearchItem& item) {
     return (item.type == SearchItem::Type::Qword || item.type == SearchItem::Type::Double) ? 8 : 4;
@@ -85,49 +201,69 @@ void SetRegionMode(RegionMode mode) {
 std::vector<MemoryRegion> QueryRegions(RegionMode mode) {
     std::vector<MemoryRegion> out;
 #if defined(__APPLE__)
+    const auto segments = CollectLoadedSegments();
     vm_address_t addr = 0;
+    natural_t depth = 0;
+
     while (true) {
         vm_size_t size = 0;
-        vm_region_basic_info_data_64_t info{};
-        mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
-        mach_port_t objName = MACH_PORT_NULL;
+        vm_region_submap_info_data_64_t info{};
+        mach_msg_type_number_t count = VM_REGION_SUBMAP_INFO_COUNT_64;
 
-        kern_return_t kr = vm_region_64(
+        kern_return_t kr = vm_region_recurse_64(
             mach_task_self(),
             &addr,
             &size,
-            VM_REGION_BASIC_INFO_64,
+            &depth,
             reinterpret_cast<vm_region_info_t>(&info),
-            &count,
-            &objName);
-        if (objName != MACH_PORT_NULL) {
-            mach_port_deallocate(mach_task_self(), objName);
-        }
+            &count);
         if (kr != KERN_SUCCESS || size == 0) {
             break;
+        }
+        if (info.is_submap) {
+            ++depth;
+            continue;
         }
 
         const uintptr_t start = static_cast<uintptr_t>(addr);
         const uintptr_t end = start + static_cast<uintptr_t>(size);
-        const bool readable = (info.protection & VM_PROT_READ) != 0;
-        const bool writable = (info.protection & VM_PROT_WRITE) != 0;
-        const bool executable = (info.protection & VM_PROT_EXECUTE) != 0;
-        const bool sensibleRange = (start >= 0x100000000ULL && end <= 0x700000000000ULL && size >= 4096);
+        const bool rwOnly =
+            (info.protection & (VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE)) ==
+            (VM_PROT_READ | VM_PROT_WRITE);
+        const bool sensibleRange =
+            (start >= 0x100000000ULL &&
+             end > start &&
+             end <= 0x700000000000ULL &&
+             size >= 4096 &&
+             size <= (256u * 1024u * 1024u));
+
+        bool inOwn = false;
+        bool inSys = false;
+        bool inApp = false;
+        for (const auto& seg : segments) {
+            if (start < seg.end && end > seg.start) {
+                if (seg.isOwnDylib) inOwn = true;
+                else if (seg.isAppBinary) inApp = true;
+                else inSys = true;
+            }
+        }
 
         bool include = false;
-        if (readable && sensibleRange) {
+        if (rwOnly && sensibleRange && !inOwn && !inSys && info.user_tag != 30 && info.user_tag < 60) {
             switch (mode) {
                 case RegionMode::WritableOnly:
-                    include = writable && !executable;
+                    // Heap-only regions outside all Mach-O images
+                    include = (!inApp) && (IsMallocUserTag(info.user_tag) || info.user_tag == 0);
                     break;
                 case RegionMode::Standard:
-                    include = writable;
+                    include = (info.share_mode == SM_PRIVATE || info.share_mode == SM_COW) &&
+                              (inApp || IsMallocUserTag(info.user_tag) || info.user_tag == 0);
                     break;
                 case RegionMode::Auto:
-                    include = writable && size <= (256u * 1024u * 1024u);
+                    include = inApp || IsMallocUserTag(info.user_tag) || info.user_tag == 0;
                     break;
                 case RegionMode::All:
-                    include = true;
+                    include = inApp || IsMallocUserTag(info.user_tag);
                     break;
             }
         }
@@ -150,7 +286,7 @@ std::vector<MemoryRegion> QueryRegions(RegionMode mode) {
 }
 
 std::vector<MemoryRegion> QueryAllWritableRegions() {
-    return QueryRegions(RegionMode::WritableOnly);
+    return QueryRegions(RegionMode::Auto);
 }
 
 bool ReadMemory(uintptr_t addr, void* out, size_t size) {
@@ -195,6 +331,11 @@ void PatchState::Clear() {
 
 bool PatchState::AddAndApply(uintptr_t addr, const void* newData, size_t size) {
     if (!addr || !newData || size == 0) return false;
+#if defined(__APPLE__)
+    if (!IsAddressSafeToPatch(addr, size)) {
+        return false;
+    }
+#endif
 
     std::vector<uint8_t> orig(size);
     if (!ReadMemory(addr, orig.data(), size)) {
@@ -229,6 +370,9 @@ size_t PatchState::UpdateAll(const void* newData, size_t size) {
     size_t updated = 0;
     for (auto& entry : entries_) {
         if (entry.patched.size() != size) continue;
+#if defined(__APPLE__)
+        if (!IsAddressSafeToPatch(entry.addr, size)) continue;
+#endif
         if (WriteMemory(entry.addr, newData, size)) {
             entry.patched.assign(static_cast<const uint8_t*>(newData), static_cast<const uint8_t*>(newData) + size);
             ++updated;
@@ -382,8 +526,7 @@ std::vector<uintptr_t> GroupScan(
     size_t maxResults,
     bool ordered) {
     if (items.empty() || targetIndex >= items.size()) return {};
-    std::vector<uintptr_t> flat = GroupScanMany(regions, items, {targetIndex}, maxSpanBytes, maxResults, ordered, nullptr);
-    return flat;
+    return GroupScanMany(regions, items, {targetIndex}, maxSpanBytes, maxResults, ordered, nullptr);
 }
 
 std::vector<uintptr_t> GroupScanMany(
