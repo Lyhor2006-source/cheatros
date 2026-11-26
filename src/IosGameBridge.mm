@@ -69,7 +69,8 @@ public:
             MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::ClearFog).enabled ||
             MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::NoRecoil).enabled ||
             MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::SuperJump).enabled ||
-            MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::ZeroGravity).enabled;
+            MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::ZeroGravity).enabled ||
+            MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::AutoReload).enabled;
 
         if (!wantRuntime) {
             entities_.clear();
@@ -125,7 +126,7 @@ public:
         auto& ctx = IosUIBridge::GetContext();
         ctx.esp = IosUIBridge::EspSettings{};
         ctx.aim = IosUIBridge::AimSettings{};
-        ctx.layout.speedMultiplier = 1.1f;
+        ctx.layout.speedMultiplier = 2.0f;
         MemoryCheats::SetFlyEnabled(false);
         MemoryCheats::SetUndergroundEnabled(false);
         flyVerticalInput_.store(0.0f, std::memory_order_relaxed);
@@ -358,11 +359,12 @@ private:
         const int noFallOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::NoFallDamage).enabled ? 1 : 0;
         const int fastParaOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::FastParachute).enabled ? 1 : 0;
         const int camWideOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::IpadView).enabled ? 1 : 0;
+        const int autoReloadOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::AutoReload).enabled ? 1 : 0;
 
         char buf[1024];
         std::snprintf(
             buf, sizeof(buf),
-            "%d %d %.2f %.2f %.2f %d %d %d %.2f %.2f %.2f 0 0 0 0 1 %.2f %.2f 0 0 %.2f %.2f 0 %.2f 1 %d %d %d %.2f %d %.2f 0 %d 0 0 0 %d %d 0 0 0.00 0 0\n",
+            "%d %d %.2f %.2f %.2f %d %d %d %.2f %.2f %.2f 0 0 0 0 1 %.2f %.2f 0 0 %.2f %.2f 0 %.2f 1 %d %d %d %.2f %d %.2f 0 %d 0 0 0 %d %d 0 0 0.00 0 0 %d\n",
             aim.masterAim ? 1 : 0,                                  // c[0]
             aim.triggerMode,                                        // c[1]
             aim.fovRadiusPx,                                        // c[2]
@@ -385,7 +387,8 @@ private:
             lay.speedMultiplier,                                    // c[30]
             noFallOn,                                               // c[32]
             fastParaOn,                                             // c[36]
-            camWideOn);                                             // c[37]
+            camWideOn,                                              // c[37]
+            autoReloadOn);                                          // c[43]
 
         const std::string tmpPath = cfgPath_ + ".new";
         FILE* fp = std::fopen(tmpPath.c_str(), "wb");

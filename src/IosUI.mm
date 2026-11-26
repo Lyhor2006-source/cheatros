@@ -522,7 +522,10 @@ void RenderFeatureRow(IosUIBridge::MemoryFeature feature, const char* customLabe
 
     bool val = st.enabled;
     if (ToggleSwitch(name, &val, badge, badgeCol) && be) {
-        bool ok = be->RequestMemoryFeature(feature, val, 1.0f);
+        const float param = (feature == IosUIBridge::MemoryFeature::SpeedHack)
+            ? IosUIBridge::GetContext().layout.speedMultiplier
+            : 1.0f;
+        bool ok = be->RequestMemoryFeature(feature, val, param);
         if (!ok) {
             PushToast((std::string(name) + ": Request not accepted").c_str());
         } else {

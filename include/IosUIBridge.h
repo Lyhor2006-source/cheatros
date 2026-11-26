@@ -151,7 +151,7 @@ struct UiLayoutState {
     bool showTeleportIcons = false;
     bool engineStarted = false;
 
-    float speedMultiplier = 1.1f; // [1.1 .. 50.0]
+    float speedMultiplier = 2.0f; // [1.1 .. 50.0]
 
     // Floating widget saved normalized/absolute offsets (-1, -1 = auto default)
     float menuPosX = -1.0f;
