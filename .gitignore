@@ -1,0 +1,10 @@
+build/
+third_party/
+*.dylib
+*.o
+*.a
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+DerivedData/

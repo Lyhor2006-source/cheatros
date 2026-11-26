@@ -1,0 +1,65 @@
+name: Build iOS UI Dylib
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-dylib:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode & iOS SDK
+        run: |
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          fi
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+          echo "SDK_PATH=${SDK_PATH}" >> "$GITHUB_ENV"
+          echo "iOS SDK: ${SDK_PATH}"
+          cmake --version
+
+      - name: Install Ninja and ldid
+        run: |
+          brew install ninja ldid || true
+
+      - name: Fetch Dear ImGui v1.85
+        run: |
+          git clone --depth 1 --branch v1.85 https://github.com/ocornut/imgui.git third_party/imgui
+
+      - name: Configure CMake (iOS arm64)
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT="${SDK_PATH}" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DIMGUI_DIR="${PWD}/third_party/imgui"
+
+      - name: Build RosModV2UI.dylib
+        run: |
+          cmake --build build --config Release -j
+          ldid -S build/RosModV2UI.dylib || true
+
+      - name: Verify Mach-O Dylib Output
+        run: |
+          ls -lh build/RosModV2UI.dylib
+          file build/RosModV2UI.dylib
+          otool -L build/RosModV2UI.dylib
+          nm -gU build/RosModV2UI.dylib | head -n 40
+
+      - name: Upload RosModV2UI.dylib Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RosModV2UI.dylib
+          path: build/RosModV2UI.dylib
+          if-no-files-found: error
