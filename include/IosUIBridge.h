@@ -123,7 +123,7 @@ struct AimSettings {
     float smoothness = 4.0f;  // [1.0 .. 20.0]
     float fovRadiusPx = 120.0f; // [30.0 .. 450.0]
     float aimRangeMeters = 250.0f; // [10.0 .. 1000.0]
-    float aimPower = 1.0f;    // [0.5 .. 2.5]
+    float aimPower = 100.0f;  // [10.0 .. 100.0] Aim Assist %
     float silentDistMeters = 250.0f; // [10.0 .. 1000.0]
     bool autoFire = false;
     bool silentAim = false;
@@ -191,8 +191,8 @@ struct OverlayEntity {
     float offscreenAngleRad = 0.0f;
     float minX = 0.0f, minY = 0.0f, maxX = 0.0f, maxY = 0.0f;
     float headX = 0.0f, headY = 0.0f;
-    float bonePos[15][2] = {};
-    bool boneValid[15] = {};
+    float bonePos[16][2] = {};
+    bool boneValid[16] = {};
     std::string name;
 };
 
@@ -227,6 +227,7 @@ struct IHostBackend {
     // Custom toggles not indexed directly via MemoryFeature enum (Fly/Underground/PlaneFire)
     virtual bool GetFlyEnabled() = 0;
     virtual void SetFlyEnabled(bool enabled) = 0;
+    virtual void SetFlyVerticalInput(float dir) { (void)dir; }
     virtual bool GetUndergroundEnabled() = 0;
     virtual void SetUndergroundEnabled(bool enabled) = 0;
     virtual bool GetPlaneFireEnabled() = 0;

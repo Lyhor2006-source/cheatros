@@ -26,6 +26,11 @@ set(ROSMODV2_UI_SOURCES
     src/CaptureContainerView.mm
     src/RyomenXOverlayView.mm
     src/IosUI.mm
+    src/MachMemory.cpp
+    src/MemoryCheats.cpp
+    src/IosPythonRuntime.mm
+    src/RosPayloadData.cpp
+    src/IosGameBridge.mm
 )
 
 set(ROSMODV2_IMGUI_SOURCES

@@ -1,6 +1,7 @@
 #import "RyomenXOverlayView.h"
 #import "CaptureContainerView.h"
 #import "BrandAssets.h"
+#import "IosGameBridge.h"
 #import "IosUI.h"
 #import "IosUIBridge.h"
 
@@ -504,6 +505,8 @@ void RyomenXSetHostBackend(IosUIBridge::IHostBackend* _Nullable backend) {
 __attribute__((constructor))
 static void RosModV2UI_DylibEntry(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
+        IosGameBridge::Initialize();
+        RyomenXSetHostBackend(&IosGameBridge::Backend());
         if (!gBecomeActiveObserver) {
             gBecomeActiveObserver = [[NSNotificationCenter defaultCenter]
                 addObserverForName:UIApplicationDidBecomeActiveNotification

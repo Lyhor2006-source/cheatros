@@ -72,7 +72,7 @@ static ImVec2 ResolveSlotPos(float* storedXY, ImVec2 fallbackPos, float viewW, f
 
 static ImVec2 GetFeatureIconPos(int idx, float viewW, float viewH) {
     auto& layout = IosUIBridge::GetContext().layout;
-    ImVec2 defPos(18.0f, 70.0f + idx * 36.0f);
+    ImVec2 defPos(18.0f, 70.0f + idx * 42.0f);
     return ResolveSlotPos(layout.featurePos[idx], defPos, viewW, viewH, 94.0f, 30.0f);
 }
 
@@ -564,9 +564,25 @@ void RenderFeatureRow(IosUIBridge::MemoryFeature feature, const char* customLabe
 void RenderFeatureToggle(const char* label, bool* localState, IosUIBridge::MemoryFeature feature) {
     auto* be = IosUIBridge::GetContext().backend;
     IosUIBridge::FeatureStatus st = be ? be->GetMemoryFeatureStatus(feature) : IosUIBridge::FeatureStatus{};
+    if (be && !st.pending) {
+        *localState = st.enabled;
+    }
+    const char* badge = nullptr;
+    ImU32 badgeCol = IM_COL32(175, 180, 195, 255);
+    if (st.pending) {
+        badge = "Applying...";
+        badgeCol = IM_COL32(255, 198, 107, 255);
+    } else if (st.error) {
+        badge = "Error";
+        badgeCol = IM_COL32(255, 80, 90, 255);
+    } else if (st.enabled) {
+        badge = "Active";
+        badgeCol = IM_COL32(70, 221, 225, 255);
+    }
     ImGui::BeginDisabled(st.pending);
-    if (ToggleSwitch(label, localState, nullptr, IM_COL32(175, 180, 195, 255)) && be) {
+    if (ToggleSwitch(label, localState, badge, badgeCol) && be) {
         be->RequestMemoryFeature(feature, *localState, 1.0f);
+        PushToast((std::string(label) + (*localState ? " requested" : " off")).c_str());
     }
     ImGui::EndDisabled();
 }
@@ -647,7 +663,8 @@ void RenderAimTab() {
         LabeledSlider("##aim_smooth", "Smoothness", &aim.smoothness, 1.0f, 20.0f, "%.1f");
         LabeledSlider("##fov_radius", "FOV", &aim.fovRadiusPx, 30.0f, 450.0f, "%.0f px");
         LabeledSlider("##aim_dist", "Aim Range", &aim.aimRangeMeters, 10.0f, 1000.0f, "%.0fm");
-        LabeledSlider("##aim_power", "Aim Power", &aim.aimPower, 0.5f, 2.5f, "%.1fx");
+        aim.aimPower = std::clamp(aim.aimPower, 10.0f, 100.0f);
+        LabeledSlider("##aim_power", "Aim Assist", &aim.aimPower, 10.0f, 100.0f, "%.0f%%");
         LabeledSlider("##silent_dist", "Silent Distance", &aim.silentDistMeters, 10.0f, 1000.0f, "%.0fm");
         EndCard();
 
@@ -1293,7 +1310,7 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
         static const int kBonePairs[][2] = {
             {0, 1}, {1, 2}, {2, 3}, {1, 4}, {4, 5}, {5, 6},
             {1, 7}, {7, 8}, {8, 9}, {3, 10}, {10, 11}, {11, 12},
-            {3, 13}, {13, 14}
+            {3, 13}, {13, 14}, {14, 15}
         };
 
         const auto& ents = ctx.backend->GetEntities();
@@ -1487,14 +1504,19 @@ void RenderFloatingHUD() {
         }
     }
 
-    // Floating AutoFire + Hide/Open Menu 32x32 toggle pills
-    ImVec2 afPos = GetAutoFireButtonPos(w, h);
-    DrawBadgeBox(fg, afPos, ImVec2(afPos.x + 32.0f, afPos.y + 32.0f), ctx.aim.autoFire, IM_COL32(70, 221, 225, 255));
-    DrawVectorIcon(fg, 6, ImVec2(afPos.x + 16.0f, afPos.y + 16.0f), IM_COL32(70, 221, 225, 255), 18.0f);
+    // Floating Fly Up (^^) + Fly Down (vv) vertical control pills (visible ONLY when Fly is enabled)
+    const bool flyOn = ctx.backend && ctx.backend->GetFlyEnabled();
+    if (flyOn && !layout.menuOpen) {
+        ImVec2 afPos = GetAutoFireButtonPos(w, h);
+        bool upHeld = (gDraggedHudKind == 2);
+        DrawBadgeBox(fg, afPos, ImVec2(afPos.x + 32.0f, afPos.y + 32.0f), upHeld, IM_COL32(70, 221, 225, 255));
+        DrawVectorIcon(fg, 6, ImVec2(afPos.x + 16.0f, afPos.y + 16.0f), IM_COL32(70, 221, 225, 255), 18.0f);
 
-    ImVec2 hmPos = GetHideMenuButtonPos(w, h);
-    DrawBadgeBox(fg, hmPos, ImVec2(hmPos.x + 32.0f, hmPos.y + 32.0f), layout.menuOpen, IM_COL32(103, 181, 255, 255));
-    DrawVectorIcon(fg, 7, ImVec2(hmPos.x + 16.0f, hmPos.y + 16.0f), IM_COL32(103, 181, 255, 255), 18.0f);
+        ImVec2 hmPos = GetHideMenuButtonPos(w, h);
+        bool downHeld = (gDraggedHudKind == 3);
+        DrawBadgeBox(fg, hmPos, ImVec2(hmPos.x + 32.0f, hmPos.y + 32.0f), downHeld, IM_COL32(103, 181, 255, 255));
+        DrawVectorIcon(fg, 7, ImVec2(hmPos.x + 16.0f, hmPos.y + 16.0f), IM_COL32(103, 181, 255, 255), 18.0f);
+    }
 }
 
 void RenderFrame() {
@@ -1532,11 +1554,14 @@ bool IsPointInMenuOrFloatingHUD(float x, float y, float viewW, float viewH) {
         return true;
     }
 
-    ImVec2 af = GetAutoFireButtonPos(viewW, viewH);
-    if (RectContains(af, 32.0f, 32.0f, x, y)) return true;
+    const bool flyOn = ctx.backend && ctx.backend->GetFlyEnabled();
+    if (flyOn && !layout.menuOpen) {
+        ImVec2 af = GetAutoFireButtonPos(viewW, viewH);
+        if (RectContains(af, 32.0f, 32.0f, x, y)) return true;
 
-    ImVec2 hm = GetHideMenuButtonPos(viewW, viewH);
-    if (RectContains(hm, 32.0f, 32.0f, x, y)) return true;
+        ImVec2 hm = GetHideMenuButtonPos(viewW, viewH);
+        if (RectContains(hm, 32.0f, 32.0f, x, y)) return true;
+    }
 
     if (layout.showFeatureIcons && !layout.menuOpen) {
         for (int i = 0; i < 4; ++i) {
@@ -1557,16 +1582,31 @@ bool IsPointInMenuOrFloatingHUD(float x, float y, float viewW, float viewH) {
 }
 
 void OnTouchBegan(float x, float y, float viewW, float viewH) {
-    auto& layout = IosUIBridge::GetContext().layout;
+    auto& ctx = IosUIBridge::GetContext();
+    auto& layout = ctx.layout;
+    auto* be = ctx.backend;
     gDraggedHudKind = -1;
     gDragMoved = false;
     gDragTouchStart = ImVec2(x, y);
 
-    ImVec2 af = GetAutoFireButtonPos(viewW, viewH);
-    if (RectContains(af, 32.0f, 32.0f, x, y)) { gDraggedHudKind = 2; gDragOrigPos = af; return; }
+    const bool flyOn = be && be->GetFlyEnabled();
+    if (flyOn && !layout.menuOpen) {
+        ImVec2 af = GetAutoFireButtonPos(viewW, viewH);
+        if (RectContains(af, 32.0f, 32.0f, x, y)) {
+            gDraggedHudKind = 2;
+            gDragOrigPos = af;
+            be->SetFlyVerticalInput(1.0f);
+            return;
+        }
 
-    ImVec2 hm = GetHideMenuButtonPos(viewW, viewH);
-    if (RectContains(hm, 32.0f, 32.0f, x, y)) { gDraggedHudKind = 3; gDragOrigPos = hm; return; }
+        ImVec2 hm = GetHideMenuButtonPos(viewW, viewH);
+        if (RectContains(hm, 32.0f, 32.0f, x, y)) {
+            gDraggedHudKind = 3;
+            gDragOrigPos = hm;
+            be->SetFlyVerticalInput(-1.0f);
+            return;
+        }
+    }
 
     if (layout.showFeatureIcons && !layout.menuOpen) {
         for (int i = 0; i < 4; ++i) {
@@ -1588,20 +1628,27 @@ void OnTouchBegan(float x, float y, float viewW, float viewH) {
 
 void OnTouchMoved(float x, float y, float viewW, float viewH) {
     if (gDraggedHudKind < 0) return;
+    // Fly Up/Down buttons are hold controls; keep them stationary while held
+    if (gDraggedHudKind == 2 || gDraggedHudKind == 3) return;
+
     float dx = x - gDragTouchStart.x;
     float dy = y - gDragTouchStart.y;
-    if (!gDragMoved && (dx * dx + dy * dy) > 25.0f) {
+    // Require 14pt travel before switching from tap to drag so finger taps always toggle pills
+    if (!gDragMoved && (dx * dx + dy * dy) > 196.0f) {
         gDragMoved = true;
     }
     if (!gDragMoved) return;
 
+    float w = 30.0f;
+    float h = 30.0f;
+    if (gDraggedHudKind == 1) { w = 114.0f; h = 30.0f; }
+    else if (gDraggedHudKind >= 10 && gDraggedHudKind <= 13) { w = 94.0f; h = 30.0f; }
+
     auto& layout = IosUIBridge::GetContext().layout;
-    float nx = std::clamp(gDragOrigPos.x + dx, 4.0f, std::max(4.0f, viewW - 34.0f));
-    float ny = std::clamp(gDragOrigPos.y + dy, 4.0f, std::max(4.0f, viewH - 34.0f));
+    float nx = std::clamp(gDragOrigPos.x + dx, 4.0f, std::max(4.0f, viewW - w - 4.0f));
+    float ny = std::clamp(gDragOrigPos.y + dy, 4.0f, std::max(4.0f, viewH - h - 4.0f));
 
     if (gDraggedHudKind == 1) { layout.islandPosX = nx; layout.islandPosY = ny; }
-    else if (gDraggedHudKind == 2) { layout.autoFirePos[0] = nx; layout.autoFirePos[1] = ny; }
-    else if (gDraggedHudKind == 3) { layout.hideMenuPos[0] = nx; layout.hideMenuPos[1] = ny; }
     else if (gDraggedHudKind >= 10 && gDraggedHudKind <= 13) {
         int i = gDraggedHudKind - 10;
         layout.featurePos[i][0] = nx; layout.featurePos[i][1] = ny;
@@ -1616,12 +1663,16 @@ void OnTouchEnded(float x, float y, float viewW, float viewH) {
     auto& ctx = IosUIBridge::GetContext();
     auto* be = ctx.backend;
 
+    if (gDraggedHudKind == 2 || gDraggedHudKind == 3) {
+        if (be) be->SetFlyVerticalInput(0.0f);
+        gDraggedHudKind = -1;
+        gDragMoved = false;
+        return;
+    }
+
     if (gDraggedHudKind >= 0 && !gDragMoved) {
-        if (gDraggedHudKind == 1 || gDraggedHudKind == 3) {
+        if (gDraggedHudKind == 1) {
             ctx.layout.menuOpen = !ctx.layout.menuOpen;
-        } else if (gDraggedHudKind == 2) {
-            ctx.aim.autoFire = !ctx.aim.autoFire;
-            PushToast(ctx.aim.autoFire ? "Auto Fire ON" : "Auto Fire OFF");
         } else if (gDraggedHudKind >= 10 && gDraggedHudKind <= 13 && be) {
             int idx = gDraggedHudKind - 10;
             if (idx == 0) {
@@ -1633,7 +1684,8 @@ void OnTouchEnded(float x, float y, float viewW, float viewH) {
                 be->RequestMemoryFeature(IosUIBridge::MemoryFeature::NoFallDamage, nxt, 1.0f);
                 PushToast(nxt ? "No Fall ON" : "No Fall OFF");
             } else if (idx == 2) {
-                bool nxt = !be->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::WallV1).enabled;
+                bool nxt = !(be->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::WallV1).enabled ||
+                             be->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::WallV2).enabled);
                 be->RequestMemoryFeature(IosUIBridge::MemoryFeature::WallV1, nxt, 1.0f);
                 be->RequestMemoryFeature(IosUIBridge::MemoryFeature::WallV2, nxt, 1.0f);
                 PushToast(nxt ? "Wallhack v1 + v2 ON" : "Wallhack v1 + v2 OFF");
@@ -1648,11 +1700,9 @@ void OnTouchEnded(float x, float y, float viewW, float viewH) {
             else if (idx == 1) {
                 bool act = be->IsLockActive("player");
                 be->ExecuteTeleportAction(act ? "unlock" : "lock", "player", -1);
-                PushToast(act ? "Enemy Lock OFF" : "Enemy Lock ON");
             } else if (idx == 2) {
                 bool act = be->IsLockActive("airplane");
                 be->ExecuteTeleportAction(act ? "unlock" : "lock", "airplane", -1);
-                PushToast(act ? "Airplane Lock OFF" : "Airplane Lock ON");
             } else if (idx == 3) {
                 be->ExecuteTeleportAction("item", "player", -1);
             } else {
@@ -1665,6 +1715,10 @@ void OnTouchEnded(float x, float y, float viewW, float viewH) {
 }
 
 void OnTouchCancelled() {
+    auto* be = IosUIBridge::GetContext().backend;
+    if ((gDraggedHudKind == 2 || gDraggedHudKind == 3) && be) {
+        be->SetFlyVerticalInput(0.0f);
+    }
     gDraggedHudKind = -1;
     gDragMoved = false;
 }
