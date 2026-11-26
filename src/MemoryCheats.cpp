@@ -185,6 +185,67 @@ std::vector<uintptr_t> ScanNoGrassAddrs() {
     return hits;
 }
 
+// ---------------------------------------------------------------------------
+// Auto-Reload ammo watcher state
+// Tracks (currentAmmo addr, maxMag value) pairs discovered at Enable time.
+// On each Tick(), if current ammo reads 0, we write back maxMag.
+// ---------------------------------------------------------------------------
+struct AmmoEntry {
+    uintptr_t addr;     // address of the in-memory current-magazine dword
+    uint32_t  maxMag;   // the full magazine capacity seen when feature was armed
+};
+std::mutex               gAutoReloadMutex;
+std::vector<AmmoEntry>   gAutoReloadEntries;
+std::atomic<bool>        gAutoReloadEnabled{false};
+
+// Scan for active magazine dwords.
+// PUBG Mobile stores per-weapon ammo as a dword with value in [1..200].
+// We look for dwords whose value is in a "live ammo" band and are surrounded
+// by neighbours that look like weapon-slot fields (ammo totals, weapon IDs).
+// The scanner intentionally stays conservative: at most 32 hits, and each
+// hit must have at least one plausible neighbour in [1..999] within 128 bytes.
+std::vector<std::pair<uintptr_t,uint32_t>> ScanAmmoEntries() {
+    auto regions = QueryPreferredRegions(MachMemory::GetRegionMode());
+    std::vector<std::pair<uintptr_t,uint32_t>> results;
+    std::vector<uint8_t> buf(65536 + 256);
+
+    for (const auto& reg : regions) {
+        for (uintptr_t cur = reg.start; cur < reg.end; cur += 65536) {
+            const size_t chunk = static_cast<size_t>(
+                std::min<uintptr_t>(65536 + 192, reg.end - cur));
+            const size_t limit = static_cast<size_t>(
+                std::min<uintptr_t>(65536, reg.end - cur));
+            if (chunk < 8 || !MachMemory::ReadMemory(cur, buf.data(), chunk)) continue;
+
+            for (size_t off = 0; off < limit; off += 4) {
+                uint32_t v = 0;
+                std::memcpy(&v, buf.data() + off, 4);
+                // Plausible magazine capacities: 5..200 (pistol to LMG)
+                if (v < 5 || v > 200) continue;
+
+                // Need at least one neighbour in [1..999] within 128 bytes
+                // AND one neighbour that equals v (reserve/total ammo slot)
+                const size_t winS = (off > 128) ? (off - 128) : 0;
+                const size_t winE = std::min(chunk - 4, off + 128);
+                bool hasReserve = false;
+                bool hasTotal   = false;
+                for (size_t s = winS; s <= winE; s += 4) {
+                    if (s == off) continue;
+                    uint32_t nv = 0;
+                    std::memcpy(&nv, buf.data() + s, 4);
+                    if (nv >= 1 && nv <= 999)  hasReserve = true;
+                    if (nv == v)               hasTotal   = true;
+                }
+                if (hasReserve && hasTotal) {
+                    results.emplace_back(cur + off, v);
+                    if (results.size() >= 32) return results;
+                }
+            }
+        }
+    }
+    return results;
+}
+
 std::vector<uintptr_t> ScanFastParachuteAddrs() {
     auto regions = QueryPreferredRegions(MachMemory::GetRegionMode());
     std::vector<uintptr_t> hits;
@@ -371,6 +432,38 @@ void ExecuteTask(const WorkerTask& task) {
         task.feature == MF::ZeroGravity) {
         std::lock_guard<std::mutex> lock(gStateMutex);
         SetResultLocked(task.feature, true, true, false, "ACTIVE (BigWorld)");
+        return;
+    }
+
+    // Auto-Reload: arms the watcher; no memory patch needed
+    if (task.feature == MF::AutoReload) {
+        if (task.enable) {
+            auto entries = ScanAmmoEntries();
+            std::lock_guard<std::mutex> lk(gAutoReloadMutex);
+            gAutoReloadEntries.clear();
+            for (const auto& e : entries) {
+                gAutoReloadEntries.push_back(AmmoEntry{e.first, e.second});
+            }
+            gAutoReloadEnabled.store(true, std::memory_order_relaxed);
+            std::lock_guard<std::mutex> stLock(gStateMutex);
+            char buf[64];
+            const size_t cnt = gAutoReloadEntries.size();
+            if (cnt > 0) {
+                std::snprintf(buf, sizeof(buf), "ACTIVE (%zu slots)", cnt);
+                SetResultLocked(task.feature, true, true, false, buf);
+            } else {
+                SetResultLocked(task.feature, false, false, true,
+                    "No ammo slots found (enter match first)");
+            }
+        } else {
+            gAutoReloadEnabled.store(false, std::memory_order_relaxed);
+            {
+                std::lock_guard<std::mutex> lk(gAutoReloadMutex);
+                gAutoReloadEntries.clear();
+            }
+            std::lock_guard<std::mutex> stLock(gStateMutex);
+            SetResultLocked(task.feature, false, false, false, "OFF");
+        }
         return;
     }
 
@@ -895,6 +988,7 @@ const char* GetFeatureName(IosUIBridge::MemoryFeature feature) {
         case MF::WaterWalk:       return "Water Walk";
         case MF::InfiniteBreath:  return "Infinite Breath";
         case MF::AntiCheatShield: return "Anti-Cheat Shield";
+        case MF::AutoReload:      return "Auto Reload";
         default:                  return "Feature";
     }
 }
@@ -955,6 +1049,17 @@ void Tick() {
             if (MachMemory::ReadValue(addr, &cur) && std::fabs(cur - (-450.0f)) < 1.0f) {
                 const float safeVal = 180.0f;
                 MachMemory::WriteValue(addr, safeVal);
+            }
+        }
+    }
+
+    // Auto-Reload: when current magazine hits 0, refill to max
+    if (gAutoReloadEnabled.load(std::memory_order_relaxed)) {
+        std::lock_guard<std::mutex> lk(gAutoReloadMutex);
+        for (auto& entry : gAutoReloadEntries) {
+            uint32_t cur = 0;
+            if (MachMemory::ReadValue(entry.addr, &cur) && cur == 0) {
+                MachMemory::WriteValue(entry.addr, entry.maxMag);
             }
         }
     }

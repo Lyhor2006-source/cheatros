@@ -665,7 +665,30 @@ void RenderMemoryTab() {
         EndCard();
 
         BeginCard("##fast", "FAST MODE", 5, false);
-        RenderFeatureRow(IosUIBridge::MemoryFeature::SpeedHack, "Fast Move");
+        // SpeedHack: custom toggle that passes slider value as param
+        {
+            auto* be = ctx.backend;
+            IosUIBridge::FeatureStatus spSt = be
+                ? be->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::SpeedHack)
+                : IosUIBridge::FeatureStatus{};
+            const char* spBadge = spSt.pending ? "Applying..."
+                                : spSt.error   ? "Error"
+                                : spSt.enabled ? "Active"
+                                               : "Inactive";
+            ImU32 spBadgeCol = spSt.pending ? IM_COL32(255,198,107,255)
+                             : spSt.error   ? IM_COL32(255, 80, 90,255)
+                             : spSt.enabled ? IM_COL32( 70,221,225,255)
+                                           : IM_COL32(175,180,195,255);
+            bool spVal = spSt.enabled;
+            ImGui::BeginDisabled(spSt.pending);
+            if (ToggleSwitch("Fast Move", &spVal, spBadge, spBadgeCol) && be) {
+                be->RequestMemoryFeature(
+                    IosUIBridge::MemoryFeature::SpeedHack, spVal,
+                    ctx.layout.speedMultiplier);
+                PushToast(spVal ? "Fast Move requested" : "Fast Move off");
+            }
+            ImGui::EndDisabled();
+        }
         if (LabeledSlider("##speed_slider", "Speed Multiplier", &ctx.layout.speedMultiplier, 1.1f, 50.0f, "%.1fx") && be) {
             be->SetSpeedMultiplier(ctx.layout.speedMultiplier);
         }
@@ -678,7 +701,16 @@ void RenderMemoryTab() {
         ImGui::TableNextColumn();
         BeginCard("##unlimited", "UNLIMITED", 1, false);
         static bool unlimAmmo = false;
-        RenderFeatureToggle("Ammo", &unlimAmmo, IosUIBridge::MemoryFeature::FastReload);
+        RenderFeatureToggle("Auto Reload", &unlimAmmo, IosUIBridge::MemoryFeature::AutoReload);
+        if (IosUIBridge::GetContext().backend) {
+            auto st = IosUIBridge::GetContext().backend->GetMemoryFeatureStatus(
+                IosUIBridge::MemoryFeature::AutoReload);
+            if (st.enabled && !st.detail.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.90f, 0.72f, 0.75f));
+                ImGui::TextUnformatted(st.detail.c_str());
+                ImGui::PopStyleColor(1);
+            }
+        }
         EndCard();
 
         ImGui::EndTable();
