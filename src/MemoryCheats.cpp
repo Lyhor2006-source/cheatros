@@ -186,13 +186,30 @@ std::vector<uintptr_t> ScanNoGrassAddrs() {
 }
 
 // ---------------------------------------------------------------------------
-// Auto-Reload ammo watcher state
-// Tracks (currentAmmo addr, maxMag value) pairs discovered at Enable time.
-// On each Tick(), if current ammo reads 0, we write back maxMag.
+// Auto-Reload ammo watcher — real-reload state machine
+//
+// Per-slot states:
+//   IDLE     – mag > 0, just monitoring, do nothing
+//   EMPTY    – mag just hit 0; game reload animation is now running naturally;
+//              we do NOT touch memory here — let the game play the animation
+//   REFILLED – game itself wrote a >0 value back (reload complete);
+//              we override with maxMag so the player gets a full magazine;
+//              then enter a short cooldown before returning to IDLE
+//
+// The result: reload animation runs at the game's own speed and visuals,
+// but the final ammo count is always maxMag instead of reserve-limited.
 // ---------------------------------------------------------------------------
+enum class AmmoState : uint8_t {
+    Idle     = 0,
+    Empty    = 1,
+    Refilled = 2,   // game wrote >0 after reload; we override then wait cooldown
+};
+
 struct AmmoEntry {
-    uintptr_t addr;     // address of the in-memory current-magazine dword
-    uint32_t  maxMag;   // the full magazine capacity seen when feature was armed
+    uintptr_t addr;
+    uint32_t  maxMag;
+    AmmoState state    = AmmoState::Idle;
+    uint32_t  cooldown = 0;   // ticks remaining before re-arming after a write
 };
 std::mutex               gAutoReloadMutex;
 std::vector<AmmoEntry>   gAutoReloadEntries;
@@ -1053,13 +1070,42 @@ void Tick() {
         }
     }
 
-    // Auto-Reload: when current magazine hits 0, refill to max
+    // Auto-Reload: real-reload state machine
+    // - IDLE     : mag > 0 → watch only
+    // - EMPTY    : mag == 0 → do nothing, game animation runs naturally
+    // - REFILLED : game wrote >0 after reload → override with maxMag, start cooldown
     if (gAutoReloadEnabled.load(std::memory_order_relaxed)) {
         std::lock_guard<std::mutex> lk(gAutoReloadMutex);
         for (auto& entry : gAutoReloadEntries) {
             uint32_t cur = 0;
-            if (MachMemory::ReadValue(entry.addr, &cur) && cur == 0) {
-                MachMemory::WriteValue(entry.addr, entry.maxMag);
+            if (!MachMemory::ReadValue(entry.addr, &cur)) continue;
+
+            switch (entry.state) {
+                case AmmoState::Idle:
+                    if (cur == 0) {
+                        entry.state = AmmoState::Empty;
+                    }
+                    break;
+
+                case AmmoState::Empty:
+                    // Waiting for reload — game animation is running.
+                    // As soon as the game writes any >0 value back (reload done),
+                    // we override it with the full maxMag.
+                    if (cur > 0) {
+                        MachMemory::WriteValue(entry.addr, entry.maxMag);
+                        entry.state    = AmmoState::Refilled;
+                        entry.cooldown = 12; // ~12 ticks before re-arming
+                    }
+                    break;
+
+                case AmmoState::Refilled:
+                    // Brief cooldown so we don't re-trigger on our own write
+                    if (entry.cooldown > 0) {
+                        --entry.cooldown;
+                    } else {
+                        entry.state = AmmoState::Idle;
+                    }
+                    break;
             }
         }
     }
