@@ -561,7 +561,7 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
     else:
         for (e, fs, hs, kn, vis, p, dist) in cands:
 
-            if _pb_enemy(me, e) != 1:
+            if _pb_enemy(me, e) == 0:
 
                 continue
 
