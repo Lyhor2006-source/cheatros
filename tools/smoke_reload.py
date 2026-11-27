@@ -25,7 +25,7 @@ class Magazine:
 
 
 magazine = Magazine()
-class Bag:
+class WeaponBag:
     def __init__(self):
         self.calls = []
         self._idx2weapon_map = {0: SimpleNamespace(
@@ -36,8 +36,8 @@ class Bag:
         self.calls.append((gun_id, bullet_id, amount))
         magazine.ammo_box_bullet_count += amount
 
-bag = Bag()
-player = SimpleNamespace(weapon_bag=bag, dtsCurWeapon=0, dtsCurRailID=1)
+bag = WeaponBag()
+player = SimpleNamespace(weapon_bag=SimpleNamespace(), dtsCurWeapon=0, dtsCurRailID=1)
 state = {"ar_on": False, "unlim_on": False, "valid_gun": False, "state": "idle",
          "key": None, "switch_until": 0.0, "reload_start": 0.0}
 calls = []
@@ -53,6 +53,7 @@ env = {
     "_pb_ar_probe": probe,
     "_pb_ar_active_slot": lambda me: me.dtsCurWeapon,
     "_pb_ar_read": lambda obj, name: getattr(obj, name, None),
+    "_pb_logic_objs": lambda me: [bag],
     "_pb_ar_install_ws_hooks": lambda: None,
     "_pb_restore_mag_hook": lambda: None,
     "_pb_ar_is_reloading": lambda _me, _objs: is_reloading_flag[0],

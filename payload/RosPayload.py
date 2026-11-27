@@ -4150,7 +4150,12 @@ def _pb_clone_equipped_ammo():
 def _pb_ar_add_bag_reserve(me, slot, gun_id, amount):
     """Use the v146 WeaponBag item ID for the selected gun slot."""
     try:
-        bag = getattr(me, 'weapon_bag', None)
+        bags = [obj for obj in _pb_logic_objs(me)
+                if type(obj).__name__ == 'WeaponBag' and
+                callable(getattr(obj, 'addBulletToGunItem', None))]
+        if len(bags) != 1:
+            return False, 'WeaponBag controller unavailable'
+        bag = bags[0]
         if slot != _pb_ar_active_slot(me):
             return False, 'bag slot changed'
         bag_slot = getattr(bag, '_cur_slot_idx', slot)
