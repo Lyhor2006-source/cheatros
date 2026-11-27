@@ -4052,8 +4052,12 @@ def _pb_clone_bag_diag(me, probe):
                     if code is not None:
                         n = code.co_argcount
                         names = code.co_varnames[:n]
-                        lines.append('  %s args=%r names=%r' %
-                                     (method_name, names, code.co_names[:18]))
+                        lines.append('  %s argc=%d' % (method_name, n))
+                        for arg in names:
+                            lines.append('    arg=%s' % arg)
+                        lines.append('    refs:')
+                        for ref in code.co_names[:24]:
+                            lines.append('      %s' % ref)
                     else:
                         lines.append('  %s doc=%r' %
                                      (method_name, getattr(method, '__doc__', None)))
@@ -4070,6 +4074,16 @@ def _pb_clone_bag_diag(me, probe):
                 for i in range(min(len(obj), 12)):
                     entry = obj[i]
                     lines.append('  [%d]=%s' % (i, repr(entry)[:180]))
+                    if i == getattr(me, 'dtsCurWeapon', -1):
+                        try:
+                            for key in dir(entry):
+                                if any(word in key.lower() for word in
+                                       ('bullet', 'ammo', 'item', 'count', 'weapon', 'id')):
+                                    value = getattr(entry, key)
+                                    lines.append('    %s=%s' %
+                                                 (key, '<callable>' if callable(value) else repr(value)[:80]))
+                        except Exception:
+                            pass
         except Exception:
             pass
         for name in dir(obj):
@@ -4088,8 +4102,8 @@ def _pb_clone_bag_diag(me, probe):
         weapon = getattr(me, 'dtsWeapon%d' % slot, None)
         if _pb_is_mapping(weapon):
             try:
-                lines.append('weapon keys=%r' % ([(k, repr(weapon[k])[:80])
-                    for k in list(weapon.keys())[:30]],))
+                for key in list(weapon.keys())[:30]:
+                    lines.append('weapon %s=%s' % (key, repr(weapon[key])[:80]))
             except Exception:
                 pass
     _pb_publish(_RYOMENX_DIR + '/clone_ammo_diag.txt', '\n'.join(lines))
