@@ -1756,24 +1756,28 @@ def _pb_silent(me, cands, allc, tm_cands=None):
 def _pb_nrs_install():
 
     import gc
+    import sys
 
     cls = None
 
-    for o in gc.get_objects():
-
+    for module in list(sys.modules.values()):
         try:
-
-            t = type(o)
-
-            if t.__name__ == 'MechanicalEvaluator' and not isinstance(o, type):
-
-                cls = t
-
+            candidate = getattr(module, 'MechanicalEvaluator', None)
+            if candidate is not None and callable(getattr(candidate, 'getRayTrajectory', None)):
+                cls = candidate
                 break
-
         except Exception:
-
             pass
+
+    if cls is None:
+        for o in gc.get_objects():
+            try:
+                t = type(o)
+                if t.__name__ == 'MechanicalEvaluator' and not isinstance(o, type):
+                    cls = t
+                    break
+            except Exception:
+                pass
 
     if cls is None:
 
@@ -4676,7 +4680,6 @@ def _pb_esp(g):
 
             _PB_DIAG_TS = time.time()
 
-            _pb_diag(me, ents)
             if frame_cfg and len(frame_cfg) > 45 and frame_cfg[45] >= 0.5:
                 slot = _pb_ar_active_slot(me)
                 gun_id = _pb_ar_slot_gun_id(me, slot) if slot is not None else 0
@@ -4685,6 +4688,7 @@ def _pb_esp(g):
                             (gun_id, int(_pb_healer_active(me, frame_cfg)), len(tm_cands),
                              int(_PB_SIL['t'] is not None), int(_PB_NRS['cls'] is not None),
                              _PB_SIL['n']))
+            _pb_diag(me, ents)
 
     except _PBNotBattle:
 

@@ -13,10 +13,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <sys/stat.h>
 
 namespace IosGameBridge {
 
@@ -144,10 +146,9 @@ public:
     IosUIBridge::FeatureStatus GetMemoryFeatureStatus(IosUIBridge::MemoryFeature feature) override {
         auto status = MemoryCheats::GetStatus(feature);
         if (feature == IosUIBridge::MemoryFeature::HealerAim && status.enabled) {
-            if (!inBattle_) {
-                status.detail = "Waiting for match";
-            } else {
-                const std::string path = baseDir_ + "/healer_status.txt";
+            const std::string path = baseDir_ + "/healer_status.txt";
+            struct stat info = {};
+            if (stat(path.c_str(), &info) == 0 && std::time(nullptr) - info.st_mtime <= 3) {
                 FILE* fp = std::fopen(path.c_str(), "rb");
                 if (fp) {
                     char buf[192] = {};
@@ -155,6 +156,8 @@ public:
                     std::fclose(fp);
                     if (count) status.detail.assign(buf, count);
                 }
+            } else {
+                status.detail = payloadInjected_ ? "Healer data pending" : "Engine loading";
             }
         }
         return status;

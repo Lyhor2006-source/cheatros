@@ -1,11 +1,12 @@
 """Exercise healer-only silent targeting without a game runtime."""
 import ast
+import sys
 from pathlib import Path
 from types import SimpleNamespace as Obj
 
 source = Path(__file__).resolve().parents[1] / "payload" / "RosPayload.py"
 tree = ast.parse(source.read_text(encoding="utf-8"))
-names = {"_pb_healer_active", "_pb_aim", "_pb_silent"}
+names = {"_pb_healer_active", "_pb_aim", "_pb_silent", "_pb_nrs_install"}
 functions = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
 config = [0.0] * 46
 config[2] = 30.0
@@ -51,4 +52,21 @@ wide_camera_candidate = [(teammate, (95, 60), (95, 40), True, True,
                           Obj(x=1, y=0, z=10), 10, 0, 100)]
 namespace["_pb_silent"](player, enemy_candidates, [], wide_camera_candidate)
 assert namespace["_PB_SIL"]["t"] == (1, 2, 10)
+class MechanicalEvaluator:
+    def getRayTrajectory(self):
+        return []
+
+module_name = "healer_smoke_mechanical_evaluator"
+sys.modules[module_name] = Obj(MechanicalEvaluator=MechanicalEvaluator)
+def wrap_ray(original):
+    def wrapped(self):
+        return original(self)
+    return wrapped
+namespace["_pb_wray"] = wrap_ray
+try:
+    namespace["_pb_nrs_install"]()
+    assert namespace["_PB_NRS"]["cls"] is MechanicalEvaluator
+    assert MechanicalEvaluator.getRayTrajectory._pb_silent_wrapped
+finally:
+    del sys.modules[module_name]
 print("healer aim smoke: teammate-only silent target inside visible camera FOV")
