@@ -622,8 +622,32 @@ bool LabeledSlider(const char* id, const char* label, float* value, float minVal
     ImGui::PushID(id);
     ImGui::InvisibleButton("##slider", ImVec2(trackW, 26.0f));
 
+    ImGuiID sliderID = ImGui::GetID("##slider");
+    static ImGuiID sActiveSliderID = 0;
+    static ImVec2 sDragStartPos(0.0f, 0.0f);
+    static bool sSliderHasDragged = false;
+
+    if (ImGui::IsItemActivated()) {
+        sActiveSliderID = sliderID;
+        sDragStartPos = ImGui::GetIO().MousePos;
+        sSliderHasDragged = false;
+    }
+
+    if (ImGui::IsItemActive() && sActiveSliderID == sliderID) {
+        ImVec2 curPos = ImGui::GetIO().MousePos;
+        float dx = std::fabs(curPos.x - sDragStartPos.x);
+        float dy = std::fabs(curPos.y - sDragStartPos.y);
+        // Do not jump on touch. Require intentional horizontal drag (dx > 8.0f and dx > dy * 1.15f)
+        if (dx > 8.0f && dx > dy * 1.15f) {
+            sSliderHasDragged = true;
+        }
+    } else if (sActiveSliderID == sliderID) {
+        sActiveSliderID = 0;
+        sSliderHasDragged = false;
+    }
+
     bool changed = false;
-    if (ImGui::IsItemActive()) {
+    if (ImGui::IsItemActive() && sActiveSliderID == sliderID && sSliderHasDragged) {
         float mouseX = ImGui::GetIO().MousePos.x;
         float t = std::clamp((mouseX - trackOrigin.x) / trackW, 0.0f, 1.0f);
         float newVal = minVal + t * (maxVal - minVal);
