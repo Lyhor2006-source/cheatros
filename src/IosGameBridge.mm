@@ -131,17 +131,22 @@ public:
             IosUI::PushToast("Clone Ammo result missing");
             return false;
         }
-        char state[8] = {};
-        int before = 0, after = 0;
-        const int fields = std::fscanf(fp, "%7s %d %d", state, &before, &after);
+        char line[128] = {};
+        const bool read = std::fgets(line, sizeof(line), fp) != nullptr;
         std::fclose(fp);
-        if (fields == 3 && std::strcmp(state, "OK") == 0) {
+        int before = 0, after = 0;
+        if (read && std::sscanf(line, "OK %d %d", &before, &after) == 2) {
             char toast[64];
             std::snprintf(toast, sizeof(toast), "Ammo %d -> %d", before, after);
             IosUI::PushToast(toast);
             return true;
         }
-        IosUI::PushToast("Clone Ammo needs reserve ammo");
+        if (read && std::strncmp(line, "ERR ", 4) == 0) {
+            line[std::strcspn(line, "\r\n")] = 0;
+            IosUI::PushToast(line + 4);
+        } else {
+            IosUI::PushToast("Clone Ammo failed");
+        }
         return false;
     }
 
