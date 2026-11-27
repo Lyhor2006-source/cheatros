@@ -948,7 +948,7 @@ void RenderMemoryTab() {
         }
         if (!cloneStatus.empty()) ImGui::TextUnformatted(cloneStatus.c_str());
         if (!cloneDiag.empty()) {
-            ImGui::BeginChild("##clone_diag", ImVec2(0.0f, 110.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
+            ImGui::BeginChild("##clone_diag", ImVec2(0.0f, 240.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
             ImGui::TextUnformatted(cloneDiag.c_str());
             ImGui::EndChild();
         }
