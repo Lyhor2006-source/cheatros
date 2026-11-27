@@ -6,6 +6,7 @@
 #import "IosUIBridge.h"
 
 #import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "imgui_impl_metal.h"
@@ -442,6 +443,95 @@ static UIWindow* _Nullable FindActiveKeyWindow(void) {
 #pragma clang diagnostic pop
 }
 
+static void RyomenXToggleMenuWithDebounce(void) {
+    static CFTimeInterval sLastToggle = 0;
+    CFTimeInterval now = CACurrentMediaTime();
+    if (now - sLastToggle < 0.40) return;
+    sLastToggle = now;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        auto& ctx = IosUIBridge::GetContext();
+        ctx.layout.menuOpen = !ctx.layout.menuOpen;
+        IosUI::PushToast(ctx.layout.menuOpen ? "Menu Opened" : "Menu Closed");
+    });
+}
+
+@interface UIApplication (RyomenXTouchInterceptor)
+- (void)ryomenx_sendEvent:(UIEvent *)event;
+@end
+
+@implementation UIApplication (RyomenXTouchInterceptor)
+
+- (void)ryomenx_sendEvent:(UIEvent *)event {
+    [self ryomenx_sendEvent:event];
+
+    if (event.type == UIEventTypeTouches) {
+        NSSet<UITouch*>* touches = [event allTouches];
+        if (!touches || touches.count == 0) return;
+
+        int activeTouches = 0;
+        for (UITouch* t in touches) {
+            if (t.phase == UITouchPhaseBegan || t.phase == UITouchPhaseMoved || t.phase == UITouchPhaseStationary) {
+                activeTouches++;
+            }
+        }
+
+        static int sPeakTouchesThisGesture = 0;
+        static CFTimeInterval sGestureStartTime = 0;
+        static CFTimeInterval sLastTapEndTime = 0;
+        static int sMultiTapCount = 0;
+
+        CFTimeInterval now = CACurrentMediaTime();
+
+        if (activeTouches > 0) {
+            if (sPeakTouchesThisGesture == 0) {
+                sGestureStartTime = now;
+            }
+            if (activeTouches > sPeakTouchesThisGesture) {
+                sPeakTouchesThisGesture = activeTouches;
+            }
+        } else {
+            // All touches lifted off screen
+            if (sPeakTouchesThisGesture >= 3) {
+                CFTimeInterval duration = now - sGestureStartTime;
+                if (duration <= 0.45) { // Quick tap
+                    if (now - sLastTapEndTime <= 0.55) {
+                        sMultiTapCount++;
+                    } else {
+                        sMultiTapCount = 1;
+                    }
+                    sLastTapEndTime = now;
+
+                    if (sMultiTapCount >= 2) {
+                        sMultiTapCount = 0;
+                        sLastTapEndTime = 0;
+                        RyomenXToggleMenuWithDebounce();
+                    }
+                }
+            } else if (now - sLastTapEndTime > 0.55) {
+                sMultiTapCount = 0;
+            }
+            sPeakTouchesThisGesture = 0;
+        }
+    }
+}
+
+@end
+
+static void RyomenXInstallTouchHook(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = [UIApplication class];
+        SEL origSel = @selector(sendEvent:);
+        SEL swizSel = @selector(ryomenx_sendEvent:);
+        Method origMethod = class_getInstanceMethod(cls, origSel);
+        Method swizMethod = class_getInstanceMethod(cls, swizSel);
+        if (origMethod && swizMethod) {
+            method_exchangeImplementations(origMethod, swizMethod);
+        }
+    });
+}
+
 @interface RyomenXGestureHandler : NSObject <UIGestureRecognizerDelegate>
 + (instancetype)sharedInstance;
 - (void)handleThreeFingerDoubleTap:(UITapGestureRecognizer*)sender;
@@ -460,9 +550,7 @@ static UIWindow* _Nullable FindActiveKeyWindow(void) {
 
 - (void)handleThreeFingerDoubleTap:(UITapGestureRecognizer*)sender {
     if (sender.state == UIGestureRecognizerStateRecognized) {
-        auto& ctx = IosUIBridge::GetContext();
-        ctx.layout.menuOpen = !ctx.layout.menuOpen;
-        IosUI::PushToast(ctx.layout.menuOpen ? "Menu Opened" : "Menu Closed");
+        RyomenXToggleMenuWithDebounce();
     }
 }
 
@@ -488,8 +576,11 @@ void RyomenXAttachOverlayToKeyWindow(void) {
         return;
     }
 
+    RyomenXInstallTouchHook();
+
     UIWindow* win = FindActiveKeyWindow();
     if (!win) return;
+    win.multipleTouchEnabled = YES;
 
     if (!gWindowTripleTap || gWindowTripleTap.view != win) {
         if (gWindowTripleTap) {
@@ -573,6 +664,7 @@ void RyomenXSetHostBackend(IosUIBridge::IHostBackend* _Nullable backend) {
 #ifndef ROSMODV2_DISABLE_AUTO_ATTACH
 __attribute__((constructor))
 static void RosModV2UI_DylibEntry(void) {
+    RyomenXInstallTouchHook();
     dispatch_async(dispatch_get_main_queue(), ^{
         IosGameBridge::Initialize();
         RyomenXSetHostBackend(&IosGameBridge::Backend());
