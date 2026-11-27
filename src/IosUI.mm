@@ -445,6 +445,13 @@ void DrawVectorIcon(ImDrawList* draw, int iconId, ImVec2 center, ImU32 color, fl
             draw->AddPolyline(crown, 7, color, ImDrawFlags_Closed, 1.7f * s);
             break;
         }
+        case 14: { // Clone Ammo: two cartridges
+            draw->AddRect(pt(-9.0f, -7.0f), pt(-3.0f, 8.0f), color, 1.5f * s, 0, 1.7f * s);
+            draw->AddRect(pt(2.0f, -7.0f), pt(8.0f, 8.0f), color, 1.5f * s, 0, 1.7f * s);
+            draw->AddLine(pt(-8.0f, -9.0f), pt(-4.0f, -9.0f), color, 1.7f * s);
+            draw->AddLine(pt(3.0f, -9.0f), pt(7.0f, -9.0f), color, 1.7f * s);
+            break;
+        }
         default: {
             draw->AddCircle(pt(0.0f, 0.0f), 6.0f * s, color, 16, 1.6f * s);
             break;
@@ -1479,23 +1486,24 @@ void RenderFloatingHUD() {
     float w = io.DisplaySize.x;
     float h = io.DisplaySize.y;
 
-    // Quick Feature Icon pills (Fast Move & No Fall only; Wallhack & Fly hidden)
+    // Quick Feature Icon pills
     if (layout.showFeatureIcons && !layout.menuOpen) {
-        static const int kFeatIcons[2] = {9, 10};
-        static const char* kFeatLabels[2] = {"Fast Move", "No Fall"};
-        static const ImU32 kFeatColors[2] = {
+        static const int kFeatIcons[3] = {9, 10, 14};
+        static const char* kFeatLabels[3] = {"Fast Move", "No Fall", "Clone Ammo"};
+        static const ImU32 kFeatColors[3] = {
             IM_COL32(70, 221, 225, 255),
             IM_COL32(135, 237, 190, 255),
+            IM_COL32(245, 195, 105, 255),
         };
         ImFont* font = ImGui::GetFont();
-        for (int i = 0; i < 2; ++i) {
-            bool active = false;
+        for (int i = 0; i < 3; ++i) {
+            bool active = (i == 2);
             bool pending = false;
-            if (ctx.backend) {
+            if (ctx.backend && i < 2) {
                 if (i == 0) {
                     auto st = ctx.backend->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::SpeedHack);
                     active = st.enabled; pending = st.pending;
-                } else {
+                } else if (i == 1) {
                     auto st = ctx.backend->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::NoFallDamage);
                     active = st.enabled; pending = st.pending;
                 }
@@ -1561,7 +1569,7 @@ bool IsPointInMenuOrFloatingHUD(float x, float y, float viewW, float viewH) {
     }
 
     if (layout.showFeatureIcons && !layout.menuOpen) {
-        for (int i = 0; i < 2; ++i) {
+        for (int i = 0; i < 3; ++i) {
             if (RectContains(GetFeatureIconPos(i, viewW, viewH), 94.0f, 30.0f, x, y)) return true;
         }
     }
@@ -1581,7 +1589,7 @@ void OnTouchBegan(float x, float y, float viewW, float viewH) {
     gDragTouchStart = ImVec2(x, y);
 
     if (layout.showFeatureIcons && !layout.menuOpen) {
-        for (int i = 0; i < 2; ++i) {
+        for (int i = 0; i < 3; ++i) {
             ImVec2 fp = GetFeatureIconPos(i, viewW, viewH);
             if (RectContains(fp, 94.0f, 30.0f, x, y)) { gDraggedHudKind = 10 + i; gDragOrigPos = fp; return; }
         }
@@ -1612,7 +1620,7 @@ void OnTouchMoved(float x, float y, float viewW, float viewH) {
     float ny = std::clamp(gDragOrigPos.y + dy, 4.0f, std::max(4.0f, viewH - h - 4.0f));
 
     if (gDraggedHudKind == 1) { layout.islandPosX = nx; layout.islandPosY = ny; }
-    else if (gDraggedHudKind >= 10 && gDraggedHudKind <= 11) {
+    else if (gDraggedHudKind >= 10 && gDraggedHudKind <= 12) {
         int i = gDraggedHudKind - 10;
         layout.featurePos[i][0] = nx; layout.featurePos[i][1] = ny;
     }
@@ -1626,16 +1634,18 @@ void OnTouchEnded(float x, float y, float viewW, float viewH) {
     if (gDraggedHudKind >= 0 && !gDragMoved) {
         if (gDraggedHudKind == 1) {
             ctx.layout.menuOpen = !ctx.layout.menuOpen;
-        } else if (gDraggedHudKind >= 10 && gDraggedHudKind <= 11 && be) {
+        } else if (gDraggedHudKind >= 10 && gDraggedHudKind <= 12 && be) {
             int idx = gDraggedHudKind - 10;
             if (idx == 0) {
                 bool nxt = !be->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::SpeedHack).enabled;
                 be->RequestMemoryFeature(IosUIBridge::MemoryFeature::SpeedHack, nxt, ctx.layout.speedMultiplier);
                 PushToast(nxt ? "Fast Move ON" : "Fast Move OFF");
-            } else {
+            } else if (idx == 1) {
                 bool nxt = !be->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::NoFallDamage).enabled;
                 be->RequestMemoryFeature(IosUIBridge::MemoryFeature::NoFallDamage, nxt, 1.0f);
                 PushToast(nxt ? "No Fall ON" : "No Fall OFF");
+            } else {
+                be->CloneEquippedAmmo();
             }
             SaveSettings();
         }

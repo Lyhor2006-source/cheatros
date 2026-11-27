@@ -4015,6 +4015,37 @@ def _pb_ar_trigger_reload(me, objs):
 
 
 
+def _pb_clone_equipped_ammo():
+    result = 'ERR No equipped weapon'
+    try:
+        me = BigWorld.player()
+        if me is not None and 'BattleGround' in type(me).__name__:
+            probe = _pb_ar_probe(me)
+            if probe and probe[0] is not None and probe[6] is not None:
+                key, current, capacity, targets, reload_objs, gun_id, magazine = probe
+                reserve = getattr(magazine, 'ammo_box_bullet_count', None)
+                if isinstance(reserve, (int, float)) and not isinstance(reserve, bool) and reserve > 0:
+                    before = int(reserve)
+                    if before > 4999:
+                        result = 'ERR Ammo limit reached'
+                    else:
+                        after = before * 2
+                        magazine.ammo_box_bullet_count = after
+                        if int(magazine.ammo_box_bullet_count) == after:
+                            reserve_key = (gun_id, getattr(me, 'dtsCurRailID', None))
+                            floors = _PB_AR_STATE.setdefault('reserve_highwater', {})
+                            floors[reserve_key] = max(floors.get(reserve_key, 0), after)
+                            result = 'OK %d %d' % (before, after)
+                        else:
+                            result = 'ERR Ammo write rejected'
+                else:
+                    result = 'ERR No reserve ammo'
+    except Exception:
+        result = 'ERR Clone unavailable'
+    _pb_publish(_RYOMENX_DIR + '/clone_ammo.txt', result)
+    return result
+
+
 def _pb_auto_reload(me, c):
 
     import time

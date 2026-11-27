@@ -115,6 +115,36 @@ public:
         }
     }
 
+    bool CloneEquippedAmmo() override {
+        if (!payloadInjected_) {
+            IosUI::PushToast("Enter match first");
+            return false;
+        }
+        const std::string resultPath = baseDir_ + "/clone_ammo.txt";
+        std::remove(resultPath.c_str());
+        if (!IosPythonRuntime::Execute("_pb_clone_equipped_ammo()\n")) {
+            IosUI::PushToast("Clone Ammo unavailable");
+            return false;
+        }
+        FILE* fp = std::fopen(resultPath.c_str(), "rb");
+        if (!fp) {
+            IosUI::PushToast("Clone Ammo result missing");
+            return false;
+        }
+        char state[8] = {};
+        int before = 0, after = 0;
+        const int fields = std::fscanf(fp, "%7s %d %d", state, &before, &after);
+        std::fclose(fp);
+        if (fields == 3 && std::strcmp(state, "OK") == 0) {
+            char toast[64];
+            std::snprintf(toast, sizeof(toast), "Ammo %d -> %d", before, after);
+            IosUI::PushToast(toast);
+            return true;
+        }
+        IosUI::PushToast("Clone Ammo needs reserve ammo");
+        return false;
+    }
+
     void SetIpadView(bool enabled, float fovDeg) override {
         auto& ctx = IosUIBridge::GetContext();
         ctx.esp.ipadView = enabled;
