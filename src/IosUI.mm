@@ -961,13 +961,13 @@ void RenderSettingsTab() {
         BeginCard("##settings_actions", "ACTIONS", 1, true);
         ImGui::TextColored(ImVec4(0.45f, 0.90f, 0.88f, 1.00f), "Status: Standalone Overlay Active");
         ImGui::Spacing();
+        float bw2 = std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f);
         if (ImGui::Button("Save Settings Now", ImVec2(bw2, 32.0f))) {
             SaveSettings();
             PushToast("Settings saved successfully");
         }
         ImGui::Spacing();
 
-        float bw2 = std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f);
         if (ImGui::Button("Hide Menu", ImVec2(bw2, 30.0f))) {
             ctx.layout.menuOpen = false;
         }
