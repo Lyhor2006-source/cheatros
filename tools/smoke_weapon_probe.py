@@ -11,7 +11,8 @@ source = Path(__file__).resolve().parents[1] / 'payload' / 'RosPayload.py'
 tree = ast.parse(source.read_text(encoding='utf-8'))
 probe = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == '_pb_ar_probe')
 clone = [n for n in tree.body if isinstance(n, ast.FunctionDef)
-         and n.name in ('_pb_clone_bag_diag', '_pb_clone_equipped_ammo', '_pb_ar_add_bag_reserve')]
+         and n.name in ('_pb_clone_bag_diag', '_pb_clone_equipped_ammo',
+                        '_pb_ar_add_bag_reserve', '_pb_bag_field')]
 rifle_mag = Obj(bullet_count=5, magazine_capacity=30, ammo_box_bullet_count=70)
 shot_mag = Obj(bullet_count=0, magazine_capacity=5, ammo_box_bullet_count=70)
 rifle_rail = Obj(_magazine=rifle_mag, bulletCount=5, maxBullet=30, weaponID=101)
@@ -24,7 +25,7 @@ player = BattleGroundPlayer(dtsCurWeapon=1, dtsCurRailID=202, dtsWeapon1=Obj(wea
 class WeaponBag:
     def __init__(self):
         self._idx2weapon_map = {1: Obj(_dtsItemID=81234,
-            legacyProperties=Obj(getGunBulletData=lambda: Obj(railData=Obj(BULLET_ID=9))))}
+            legacyProperties={'getGunBulletData': lambda: {'railData': {'BULLET_ID': 9}}})}
         self.calls = []
 
     def addBulletToGunItem(self, gun_id, bullet_id, amount):
@@ -39,8 +40,8 @@ env = {'_PB_GUN_SLOTS': (0, 1, 2, 6, 8, 9),
        '_pb_ar_active_slot': lambda me: me.dtsCurWeapon,
        '_pb_ar_slot_gun_id': lambda me, slot: 202,
        '_pb_fire_objects': lambda me, active_only: [me, rifle, shotgun],
-       '_pb_ar_read': lambda obj, name: getattr(obj, name, None),
-       '_pb_is_mapping': lambda obj: False,
+       '_pb_ar_read': lambda obj, name: obj.get(name) if isinstance(obj, dict) else getattr(obj, name, None),
+       '_pb_is_mapping': lambda obj: isinstance(obj, dict),
        '_PB_AR_STATE': {'reserve_highwater': {}},
        'BigWorld': Obj(player=lambda: player),
        '_RYOMENX_DIR': '/tmp',

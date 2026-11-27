@@ -4052,6 +4052,27 @@ def _pb_clone_bag_diag(me, probe):
                 lines.append('  selected item=%r class=%s' %
                              (_pb_ar_read(selected, '_dtsItemID'), type(selected).__name__))
                 lines.append('  map slots=%r' % list(obj._idx2weapon_map.keys()))
+                rail_map = getattr(obj, '_rail_magazine_dict', None)
+                if rail_map is not None and hasattr(rail_map, 'keys'):
+                    lines.append('  rail map keys=%r' % list(rail_map.keys())[:20])
+                for label, owner in (('gun', selected),
+                                     ('legacy', getattr(selected, 'legacyProperties', None)),
+                                     ('rail', getattr(selected, '_curRail', None))):
+                    if owner is None: continue
+                    lines.append('  %s type=%s railData=%r BULLET_ID=%r' %
+                                 (label, type(owner).__name__,
+                                  repr(_pb_bag_field(owner, 'railData'))[:100],
+                                  _pb_ar_read(owner, 'BULLET_ID')))
+                    getter = _pb_bag_field(owner, 'getGunBulletData')
+                    if callable(getter):
+                        try:
+                            value = getter()
+                            lines.append('  %s getGunBulletData=%r railData=%r' %
+                                         (label, repr(value)[:100],
+                                          repr(_pb_bag_field(value, 'railData'))[:100]))
+                        except Exception as exc:
+                            lines.append('  %s getGunBulletData error=%s' %
+                                         (label, type(exc).__name__))
             except Exception as exc:
                 lines.append('  selected item inspect=%s' % type(exc).__name__)
             for method_name in ('addBulletToGunItem', 'notifyBulletChange',
@@ -4147,6 +4168,20 @@ def _pb_clone_equipped_ammo():
     return result
 
 
+def _pb_bag_field(obj, name):
+    if obj is None:
+        return None
+    try:
+        if _pb_is_mapping(obj) and name in obj:
+            return obj[name]
+    except Exception:
+        pass
+    try:
+        return getattr(obj, name, None)
+    except Exception:
+        return None
+
+
 def _pb_ar_add_bag_reserve(me, slot, gun_id, amount):
     """Use the v146 WeaponBag item ID for the selected gun slot."""
     try:
@@ -4172,18 +4207,18 @@ def _pb_ar_add_bag_reserve(me, slot, gun_id, amount):
         if item_id is None or item_id <= 0:
             return False, 'bag item ID unavailable'
         ids = set()
-        rail = getattr(gun, '_curRail', None)
-        for owner in (gun, rail, getattr(gun, 'legacyProperties', None),
-                      getattr(rail, 'legacyProperties', None)):
+        rail = _pb_bag_field(gun, '_curRail')
+        for owner in (gun, rail, _pb_bag_field(gun, 'legacyProperties'),
+                      _pb_bag_field(rail, 'legacyProperties')):
             if owner is None:
                 continue
             bullet_data = None
-            getter = getattr(owner, 'getGunBulletData', None)
+            getter = _pb_bag_field(owner, 'getGunBulletData')
             if callable(getter):
                 try: bullet_data = getter()
                 except Exception: pass
-            for data in (owner, getattr(owner, 'railData', None),
-                         bullet_data, getattr(bullet_data, 'railData', None)):
+            for data in (owner, _pb_bag_field(owner, 'railData'),
+                         bullet_data, _pb_bag_field(bullet_data, 'railData')):
                 if data is None:
                     continue
                 bullet_id = _pb_ar_read(data, 'BULLET_ID')

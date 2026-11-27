@@ -9,7 +9,7 @@ from types import SimpleNamespace
 source = (Path(__file__).resolve().parents[1] / "payload" / "RosPayload.py").read_text(encoding="utf-8")
 tree = ast.parse(source)
 functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and
-             node.name in ("_pb_auto_reload", "_pb_ar_add_bag_reserve")]
+             node.name in ("_pb_auto_reload", "_pb_ar_add_bag_reserve", "_pb_bag_field")]
 code = compile(ast.Module(body=functions, type_ignores=[]), "RosPayload.py", "exec")
 
 
@@ -53,6 +53,7 @@ env = {
     "_pb_ar_probe": probe,
     "_pb_ar_active_slot": lambda me: me.dtsCurWeapon,
     "_pb_ar_read": lambda obj, name: getattr(obj, name, None),
+    "_pb_is_mapping": lambda obj: isinstance(obj, dict),
     "_pb_logic_objs": lambda me: [bag],
     "_pb_ar_install_ws_hooks": lambda: None,
     "_pb_restore_mag_hook": lambda: None,
