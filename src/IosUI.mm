@@ -77,6 +77,7 @@ void SaveSettings() {
     dict[@"name"] = @(esp.name);
     dict[@"team"] = @(esp.teamId);
     dict[@"player_id"] = @(esp.playerId);
+    dict[@"player_count"] = @(esp.playerCount);
     dict[@"distance"] = @(esp.distance);
     dict[@"edge"] = @(esp.edgeArrows);
     dict[@"filter_bots"] = @(esp.hideBots);
@@ -168,6 +169,7 @@ void LoadSettings() {
     readBool(@"name", esp.name);
     readBool(@"team", esp.teamId);
     readBool(@"player_id", esp.playerId);
+    readBool(@"player_count", esp.playerCount);
     readBool(@"distance", esp.distance);
     readBool(@"edge", esp.edgeArrows);
     readBool(@"filter_bots", esp.hideBots);
@@ -209,6 +211,9 @@ void LoadSettings() {
     if (esp.masterEsp || aim.masterAim) {
         layout.engineStarted = true;
     }
+
+    // Always start with menu closed on game launch
+    layout.menuOpen = false;
 
     // Memory features intentionally not restored (always default OFF on game launch)
 
@@ -807,6 +812,7 @@ void RenderEspTab() {
         ToggleSwitch("Hide Bots", &esp.hideBots, nullptr, IM_COL32(175, 180, 195, 255));
         ToggleSwitch("Team ID", &esp.teamId, nullptr, IM_COL32(175, 180, 195, 255));
         ToggleSwitch("Player ID", &esp.playerId, nullptr, IM_COL32(175, 180, 195, 255));
+        ToggleSwitch("Player Count Hub", &esp.playerCount, nullptr, IM_COL32(175, 180, 195, 255));
         EndCard();
 
         ImGui::TableNextColumn();
@@ -1541,7 +1547,9 @@ void RenderFrame() {
             else ++players;
         }
     }
-    RenderDynamicIsland(ImGui::GetForegroundDrawList(), io.DisplaySize, players, bots);
+    if (ctx.esp.playerCount) {
+        RenderDynamicIsland(ImGui::GetForegroundDrawList(), io.DisplaySize, players, bots);
+    }
     RenderFloatingHUD();
 }
 
@@ -1561,7 +1569,11 @@ bool IsPointInMenuOrFloatingHUD(float x, float y, float viewW, float viewH) {
         }
     }
 
-    return GetIslandTouchRect(viewW, viewH).Contains(ImVec2(x, y));
+    if (ctx.esp.playerCount && GetIslandTouchRect(viewW, viewH).Contains(ImVec2(x, y))) {
+        return true;
+    }
+
+    return false;
 }
 
 void OnTouchBegan(float x, float y, float viewW, float viewH) {
@@ -1578,8 +1590,10 @@ void OnTouchBegan(float x, float y, float viewW, float viewH) {
         }
     }
 
-    const ImRect island = GetIslandTouchRect(viewW, viewH);
-    if (island.Contains(ImVec2(x, y))) { gDraggedHudKind = 1; gDragOrigPos = island.Min; }
+    if (ctx.esp.playerCount) {
+        const ImRect island = GetIslandTouchRect(viewW, viewH);
+        if (island.Contains(ImVec2(x, y))) { gDraggedHudKind = 1; gDragOrigPos = island.Min; }
+    }
 }
 
 void OnTouchMoved(float x, float y, float viewW, float viewH) {

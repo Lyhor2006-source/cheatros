@@ -115,6 +115,7 @@ struct EspSettings {
     bool hideBots = false;
     bool teamId = false;
     bool playerId = false;
+    bool playerCount = false;
     float espRangeMeters = 400.0f; // [50 .. 3000]
     bool ipadView = false;
     float cameraFovDeg = 95.0f;    // [80 .. 130]
@@ -141,7 +142,7 @@ struct AimSettings {
 };
 
 struct UiLayoutState {
-    bool menuOpen = true;
+    bool menuOpen = false;
     bool menuVisible = true;
     int activeTab = 0;        // 0..5 (ESP, Aim, Memory, Teleport, Hand, Settings)
     float uiScale = 1.0f;     // [0.70 .. 1.20]
