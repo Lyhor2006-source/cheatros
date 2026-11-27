@@ -25,6 +25,7 @@ class Magazine:
 
 
 magazine = Magazine()
+magazine.ammo_box_bullet_count = 100
 player = SimpleNamespace(dtsCurWeapon=0, dtsCurRailID=1)
 state = {"ar_on": False, "unlim_on": False, "valid_gun": False, "state": "idle",
          "key": None, "switch_until": 0.0, "reload_start": 0.0}
@@ -56,6 +57,7 @@ state["switch_until"] = 0.0
 # Active tick: reserve is topped off to 150, but magazine bullet_count remains 5 (natural depletion)
 tick(player, config)
 assert magazine.bullet_count == 5 and magazine.ammo_box_bullet_count == 150
+assert state['native_reserve_available'][(0, 42, 1)] is True
 assert calls == []
 
 # Reserve spent by a native reload returns to the observed high-water value.
@@ -182,3 +184,27 @@ tick(player, config)
 assert state["state"] == "failed" and len(calls) == before_calls
 assert hud_magazines[0] == 0
 print("reload retry smoke: failed refill does not request a second reload")
+
+# An empty real reserve may make the game retry its reload indefinitely. Complete
+# one local reload without waiting for a native state that cannot finish.
+zero_mag = Magazine()
+zero_mag.magazine_capacity = 5
+env["_pb_ar_probe"] = lambda _me: ((0, 44, 3), zero_mag.bullet_count, 5,
+                                  [], [], 44, zero_mag)
+player.dtsCurRailID = 3
+is_reloading_flag[0] = False
+tick(player, config)
+state["switch_until"] = 0.0
+tick(player, config)
+assert zero_mag.ammo_box_bullet_count == 25
+assert state['native_reserve_available'][(0, 44, 3)] is False
+zero_mag.decBulletFromMagazine(5)
+before_calls = len(calls)
+tick(player, config)
+assert len(calls) == before_calls + 1 and state["state"] == "reloading"
+is_reloading_flag[0] = True
+state["reload_start"] = time.time() - 1.8
+tick(player, config)
+assert zero_mag.bullet_count == 5 and state["state"] == "idle"
+assert len(calls) == before_calls + 1
+print("zero reserve smoke: single reload attempt then local refill")

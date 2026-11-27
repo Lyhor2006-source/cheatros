@@ -4023,9 +4023,14 @@ def _pb_auto_reload(me, c):
 
     unlim_on = bool(c and len(c) > 44 and c[44] >= 0.5)
 
+    was_unlim_on = _PB_AR_STATE.get('unlim_on', False)
+
     _PB_AR_STATE['ar_on'] = ar_on
 
     _PB_AR_STATE['unlim_on'] = unlim_on
+
+    if unlim_on and not was_unlim_on:
+        _PB_AR_STATE['native_reserve_available'] = {}
 
     if not (ar_on or unlim_on):
 
@@ -4034,6 +4039,8 @@ def _pb_auto_reload(me, c):
         _PB_AR_STATE['state'] = 'idle'
 
         _PB_AR_STATE['reload_seen'] = False
+
+        _PB_AR_STATE.pop('native_reserve_available', None)
 
         return
 
@@ -4066,6 +4073,11 @@ def _pb_auto_reload(me, c):
         _PB_AR_STATE['state'] = 'idle'
 
         _PB_AR_STATE['reload_seen'] = False
+
+        if unlim_on and cur_mag is not None:
+            initial_reserve = getattr(cur_mag, 'ammo_box_bullet_count', None)
+            _PB_AR_STATE.setdefault('native_reserve_available', {})[wep_key] = (
+                isinstance(initial_reserve, (int, float)) and initial_reserve > 0)
 
         _PB_AR_STATE['switch_until'] = now + 0.50
 
@@ -4101,6 +4113,12 @@ def _pb_auto_reload(me, c):
 
         reserve = getattr(cur_mag, 'ammo_box_bullet_count', None)
         reserve_key = (gun_id, getattr(me, 'dtsCurRailID', None))
+        reserve_modes = _PB_AR_STATE.setdefault('native_reserve_available', {})
+        if wep_key not in reserve_modes:
+            reserve_modes[wep_key] = isinstance(reserve, (int, float)) and reserve > 0
+        elif reserve == 0:
+            reserve_modes[wep_key] = False
+        zero_reserve_mode = not reserve_modes[wep_key]
         floors = _PB_AR_STATE.setdefault('reserve_highwater', {})
         if eff_cap > 0 and isinstance(reserve, (int, float)) and not isinstance(reserve, bool) and reserve >= 0:
             floor = max(floors.get(reserve_key, 0), int(reserve), eff_cap * 5)
@@ -4115,8 +4133,10 @@ def _pb_auto_reload(me, c):
             reloading_now = _pb_ar_is_reloading(me, objs)
             if reloading_now:
                 _PB_AR_STATE['reload_seen'] = True
-            if not reloading_now and (_PB_AR_STATE.get('reload_seen') or
-                                      cur_ammo > 0 or elapsed >= 2.25):
+            ready = (elapsed >= 1.75 if zero_reserve_mode else
+                     not reloading_now and (_PB_AR_STATE.get('reload_seen') or
+                                            cur_ammo > 0 or elapsed >= 2.25))
+            if ready:
                 restored = False
                 try:
                     cur_mag.bullet_count = eff_cap
