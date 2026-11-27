@@ -473,6 +473,11 @@ void ExecuteTask(const WorkerTask& task) {
         SetResultLocked(task.feature, true, true, false, "ACTIVE (Unlimited Ammo)");
         return;
     }
+    if (task.feature == MF::FastParachute) {
+        std::lock_guard<std::mutex> lock(gStateMutex);
+        SetResultLocked(task.feature, true, true, false, "ACTIVE (Fast Parachute)");
+        return;
+    }
 
     // Features requiring external server-leased scripts (not bundled)
     if (task.feature == MF::FastParachuteV2 ||
@@ -1085,11 +1090,6 @@ void Tick() {
                 retries.push_back(WorkerTask{
                     IosUIBridge::MemoryFeature::SpeedHack, true,
                     gSpeedMultiplier.load(std::memory_order_relaxed), true});
-            }
-            const auto& fp = gFeatures[static_cast<size_t>(IosUIBridge::MemoryFeature::FastParachute)];
-            if (fp.enabled && !fp.pending && fp.patches.Count() == 0) {
-                retries.push_back(WorkerTask{
-                    IosUIBridge::MemoryFeature::FastParachute, true, 1.0f, true});
             }
         }
     }
