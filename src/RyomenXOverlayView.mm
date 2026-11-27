@@ -16,7 +16,6 @@
 
 @interface RyomenXOverlayView () {
     BOOL _prevMenuBackdropActive;
-    BOOL _prevHideRecording;
 }
 @end
 
@@ -72,7 +71,6 @@ void RyomenXSetCaptureProtectionEnabled(RyomenXOverlayView* overlay, BOOL enable
     _command_queue = [dev newCommandQueue];
     _last_frame = 0.0;
     _prevMenuBackdropActive = NO;
-    _prevHideRecording = NO;
 
     self.opaque = NO;
     self.backgroundColor = [UIColor clearColor];
@@ -382,9 +380,10 @@ void RyomenXSetCaptureProtectionEnabled(RyomenXOverlayView* overlay, BOOL enable
         io.DeltaTime = dt;
 
         auto& ctx = IosUIBridge::GetContext();
-        if (ctx.layout.hideRecording != _prevHideRecording) {
-            _prevHideRecording = ctx.layout.hideRecording;
-            RyomenXSetCaptureProtectionEnabled(self, _prevHideRecording ? YES : NO);
+        const bool protectedNow = [self.superview isKindOfClass:[CaptureContainerView class]] ||
+            [self.superview.superview isKindOfClass:[CaptureContainerView class]];
+        if (ctx.layout.hideRecording != protectedNow) {
+            RyomenXSetCaptureProtectionEnabled(self, ctx.layout.hideRecording ? YES : NO);
         }
 
         if (ctx.backend) {
@@ -610,6 +609,7 @@ void RyomenXAttachOverlayToKeyWindow(void) {
         if (IosUIBridge::GetContext().layout.hideRecording) {
             RyomenXSetCaptureProtectionEnabled(existing, YES);
         } else {
+            RyomenXSetCaptureProtectionEnabled(existing, NO);
             [win bringSubviewToFront:existing];
         }
         return;
