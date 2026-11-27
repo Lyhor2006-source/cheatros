@@ -1558,7 +1558,7 @@ def _pb_silent(me, cands, allc, tm_cands=None):
     if not healer and c[0] < 0.5:
         return
 
-    fov, vischk, ignkn, bone, W, H, maxd = c[2], c[5], c[6], c[7], c[8], c[9], c[11]
+    fov, vischk, ignkn, bone, W, H, maxd = c[2], c[5], c[6], c[7], c[8], c[9], c[10]
 
     s360 = len(c) >= 15 and c[14] >= 0.5
 
@@ -4390,7 +4390,7 @@ def _pb_esp(g):
 
                 enemy = _pb_enemy(me, e)
 
-                if on and enemy == 0:
+                if enemy == 0:
                     try:
                         if me is not None and e is not None and getattr(me, 'id', None) == getattr(e, 'id', None):
                             _PB_BMAP.pop(eid, None)
@@ -4606,7 +4606,7 @@ def _pb_esp(g):
 
                     allc.append((e, kn, vis, p, dist))
 
-                if enemy == 0:
+                if on and enemy == 0:
 
                     tm_cands.append((e, fs, hs, kn, vis, p, dist, hp, mhp))
 

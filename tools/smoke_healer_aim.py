@@ -10,6 +10,7 @@ functions = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name i
 config = [0.0] * 46
 config[2] = 30.0
 config[8:12] = [100.0, 100.0, 100.0, 100.0]
+config[11] = 0.0  # Reserved by the native writer; range is c[10].
 config[45] = 1.0
 namespace = {"_PB_TRG": {}, "_PB_NRS": {"sil": True}, "_PB_SIL": {"t": None, "tv": 0},
              "_pb_aimcfg": lambda: config, "_pb_vis": lambda *_: 1,
