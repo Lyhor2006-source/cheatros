@@ -9,7 +9,7 @@ from types import SimpleNamespace
 source = (Path(__file__).resolve().parents[1] / "payload" / "RosPayload.py").read_text(encoding="utf-8")
 tree = ast.parse(source)
 functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and
-             node.name in ("_pb_auto_reload", "_pb_ar_add_bag_reserve", "_pb_bag_field")]
+             node.name == "_pb_auto_reload"]
 code = compile(ast.Module(body=functions, type_ignores=[]), "RosPayload.py", "exec")
 
 
@@ -25,19 +25,7 @@ class Magazine:
 
 
 magazine = Magazine()
-class WeaponBag:
-    def __init__(self):
-        self.calls = []
-        self._idx2weapon_map = {0: SimpleNamespace(
-            _dtsItemID=7042, _curRail=SimpleNamespace(
-                railData=SimpleNamespace(BULLET_ID=77)))}
-
-    def addBulletToGunItem(self, gun_id, bullet_id, amount):
-        self.calls.append((gun_id, bullet_id, amount))
-        magazine.ammo_box_bullet_count += amount
-
-bag = WeaponBag()
-player = SimpleNamespace(weapon_bag=SimpleNamespace(), dtsCurWeapon=0, dtsCurRailID=1)
+player = SimpleNamespace(dtsCurWeapon=0, dtsCurRailID=1)
 state = {"ar_on": False, "unlim_on": False, "valid_gun": False, "state": "idle",
          "key": None, "switch_until": 0.0, "reload_start": 0.0}
 calls = []
@@ -51,10 +39,6 @@ def probe(_me):
 env = {
     "_PB_AR_STATE": state,
     "_pb_ar_probe": probe,
-    "_pb_ar_active_slot": lambda me: me.dtsCurWeapon,
-    "_pb_ar_read": lambda obj, name: getattr(obj, name, None),
-    "_pb_is_mapping": lambda obj: isinstance(obj, dict),
-    "_pb_logic_objs": lambda me: [bag],
     "_pb_ar_install_ws_hooks": lambda: None,
     "_pb_restore_mag_hook": lambda: None,
     "_pb_ar_is_reloading": lambda _me, _objs: is_reloading_flag[0],
@@ -72,14 +56,10 @@ state["switch_until"] = 0.0
 # Active tick: reserve is topped off to 150, but magazine bullet_count remains 5 (natural depletion)
 tick(player, config)
 assert magazine.bullet_count == 5 and magazine.ammo_box_bullet_count == 150
-assert bag.calls == [(7042, 77, 150)]
 assert calls == []
-wrong, detail = env['_pb_ar_add_bag_reserve'](player, 1, 99, 10)
-assert not wrong and detail == 'bag slot changed' and bag.calls == [(7042, 77, 150)]
 
 # Reserve spent by a native reload returns to the observed high-water value.
 magazine.ammo_box_bullet_count = 120
-state['bag_attempts'][(42, 1)] = 0.0
 tick(player, config)
 assert magazine.ammo_box_bullet_count == 150
 
@@ -115,7 +95,7 @@ assert state["state"] == "idle"
 assert magazine.ammo_box_bullet_count == 150
 assert calls == ["reload"]
 
-print("reload smoke: Option A validated: natural magazine depletion, real reload animation uninterrupted, infinite reserve replenished")
+print("reload smoke: natural depletion, one native reload request, local reserve restored")
 
 # A read-only weapon mirror used to stop the old all-or-nothing assignment loop.
 class ReadOnlyMirror:
@@ -148,8 +128,36 @@ tick(player, config)
 assert state["state"] == "reloading" and hud_magazines[0] == 0
 is_reloading_flag[0] = False
 tick(player, config)
-assert state["state"] == "idle" and magazine.bullet_count == 7 and hud_magazines[0] == 7
-print("reload timing smoke: early magazine fill synchronizes HUD after reload exit")
+assert state["state"] == "idle" and magazine.bullet_count == 30 and hud_magazines[0] == 30
+print("reload timing smoke: partial native fill completes after reload exit")
+
+# Shell-fed weapon: do not fill during the animation; complete to its own capacity.
+magazine.magazine_capacity = 5
+magazine.bullet_count = 1
+hud_magazines[0] = 1
+state["state"] = "reloading"
+is_reloading_flag[0] = True
+tick(player, config)
+assert magazine.bullet_count == 1 and hud_magazines[0] == 1
+is_reloading_flag[0] = False
+tick(player, config)
+assert magazine.bullet_count == 5 and hud_magazines[0] == 5
+assert state["state"] == "idle"
+magazine.magazine_capacity = 30
+print("shotgun reload smoke: partial shell load completes after animation")
+
+# A rejected native reload cannot leave an empty gun in a repeated reload loop.
+magazine.bullet_count = 0
+hud_magazines[0] = 0
+state["state"] = "idle"
+before_calls = len(calls)
+tick(player, config)
+assert state["state"] == "reloading" and len(calls) == before_calls + 1
+state["reload_start"] = time.time() - 2.3
+tick(player, config)
+assert state["state"] == "idle" and magazine.bullet_count == 30 and hud_magazines[0] == 30
+assert len(calls) == before_calls + 1
+print("reload fallback smoke: one request then a full local magazine")
 
 class StuckMagazine:
     magazine_capacity = 5
@@ -161,7 +169,9 @@ class StuckMagazine:
 
 
 stuck = StuckMagazine()
-env["_pb_ar_probe"] = lambda _me: ((0, 43, 2), 0, 5, [], [], 43, stuck)
+env["_pb_ar_probe"] = lambda _me: ((0, 43, 2), 0, 5,
+                                  [(hud_magazines, None, 0)], [], 43, stuck)
+hud_magazines[0] = 0
 state["key"] = (0, 43, 2)
 state["state"] = "reloading"
 state["reload_start"] = time.time() - 4.0
@@ -170,4 +180,5 @@ before_calls = len(calls)
 tick(player, config)
 tick(player, config)
 assert state["state"] == "failed" and len(calls) == before_calls
+assert hud_magazines[0] == 0
 print("reload retry smoke: failed refill does not request a second reload")

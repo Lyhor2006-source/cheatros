@@ -3931,9 +3931,8 @@ def _pb_ar_trigger_reload(me, objs):
 
                 try:
 
-                    fn()
-
-                    return True
+                    if fn() is not False:
+                        return True
 
                 except Exception:
 
@@ -3963,9 +3962,8 @@ def _pb_ar_trigger_reload(me, objs):
 
                         try:
 
-                            fn(trig_ev)
-
-                            return True
+                            if fn(trig_ev) is not False:
+                                return True
 
                         except Exception:
 
@@ -3995,9 +3993,8 @@ def _pb_ar_trigger_reload(me, objs):
 
                         try:
 
-                            fn(*args)
-
-                            return True
+                            if fn(*args) is not False:
+                                return True
 
                         except Exception:
 
@@ -4015,272 +4012,6 @@ def _pb_ar_trigger_reload(me, objs):
 
 
 
-def _pb_disassemble_method(method):
-    try:
-        import dis
-        import sys
-        import binascii
-        try:
-            from io import StringIO
-        except ImportError:
-            from StringIO import StringIO
-        func = getattr(method, '__func__', None) or getattr(method, 'im_func', None) or method
-        code = getattr(func, '__code__', None) or getattr(func, 'func_code', None)
-        if code is None:
-            return 'code unavailable: %s' % type(func).__name__
-        output = StringIO()
-        old_stdout = sys.stdout
-        try:
-            sys.stdout = output
-            dis.disassemble(code)
-        finally:
-            sys.stdout = old_stdout
-        return output.getvalue()[:24000]
-    except Exception as exc:
-        try:
-            raw = binascii.hexlify(code.co_code)
-            if not isinstance(raw, str): raw = raw.decode('ascii')
-            return ('disassembly unavailable: %s %s\npython=%s\ncode=%s\nconsts=%r' %
-                    (type(exc).__name__, str(exc)[:150], sys.version.split()[0],
-                     raw[:16000], code.co_consts[:30]))
-        except Exception:
-            return 'disassembly unavailable: %s' % type(exc).__name__
-
-
-def _pb_clone_bag_diag(me, probe):
-    lines = ['CLONE AMMO BAG DIAG']
-    lines.append('slot=%r gun=%r rail=%r' % (
-        getattr(me, 'dtsCurWeapon', None), probe[5], getattr(me, 'dtsCurRailID', None)))
-    magazine = probe[6]
-    lines.append('mag=%r reserve=%r cap=%r' % (
-        getattr(magazine, 'bullet_count', None),
-        getattr(magazine, 'ammo_box_bullet_count', None),
-        getattr(magazine, 'magazine_capacity', None)))
-    lines.append('unlimited bag=%s verified=%r' %
-                 (_PB_AR_STATE.get('bag_detail', 'not attempted'),
-                  _PB_AR_STATE.get('bag_verified', False)))
-    lines.append('clone=%s' % _PB_AR_STATE.get('clone_detail', 'not attempted'))
-    objects = []
-    for name in ('weapon_bag', 'weaponBag', 'dtsPackage', 'inventory', 'bag', 'itemBag', 'backpack'):
-        try:
-            obj = getattr(me, name, None)
-            if obj is not None:
-                objects.append((name, obj))
-        except Exception:
-            pass
-    for obj in _pb_logic_objs(me):
-        kind = type(obj).__name__.lower()
-        if 'bag' in kind or 'invent' in kind or 'backpack' in kind:
-            objects.append(('logic', obj))
-    seen = set()
-    for label, obj in objects:
-        if id(obj) in seen:
-            continue
-        seen.add(id(obj))
-        lines.append('%s type=%s' % (label, type(obj).__name__))
-        if type(obj).__name__ == 'WeaponBag':
-            try:
-                selected = obj._idx2weapon_map.get(getattr(me, 'dtsCurWeapon', None))
-                lines.append('  selected item=%r class=%s' %
-                             (_pb_ar_read(selected, '_dtsItemID'), type(selected).__name__))
-                lines.append('  map slots=%r' % list(obj._idx2weapon_map.keys()))
-                rail_map = getattr(obj, '_rail_magazine_dict', None)
-                if rail_map is not None and hasattr(rail_map, 'keys'):
-                    lines.append('  rail map keys=%r' % list(rail_map.keys())[:20])
-                for label, owner in (('gun', selected),
-                                     ('legacy', getattr(selected, 'legacyProperties', None)),
-                                     ('rail', getattr(selected, '_curRail', None))):
-                    if owner is None: continue
-                    lines.append('  %s type=%s railData=%r BULLET_ID=%r' %
-                                 (label, type(owner).__name__,
-                                  repr(_pb_bag_field(owner, 'railData'))[:100],
-                                  _pb_ar_read(owner, 'BULLET_ID')))
-                    getter = _pb_bag_field(owner, 'getGunBulletData')
-                    if callable(getter):
-                        try:
-                            value = getter()
-                            lines.append('  %s getGunBulletData=%r railData=%r' %
-                                         (label, repr(value)[:100],
-                                          repr(_pb_bag_field(value, 'railData'))[:100]))
-                        except Exception as exc:
-                            lines.append('  %s getGunBulletData error=%s' %
-                                         (label, type(exc).__name__))
-                if selected is not None:
-                    for key in dir(selected):
-                        if key.startswith('__') or not any(word in key.lower() for word in
-                            ('rail', 'mag', 'bullet', 'ammo', 'legacy', 'data', 'item')):
-                            continue
-                        try:
-                            value = getattr(selected, key)
-                            lines.append('  gun.%s=%s' %
-                                         (key, '<callable>' if callable(value) else repr(value)[:100]))
-                        except Exception:
-                            pass
-            except Exception as exc:
-                lines.append('  selected item inspect=%s' % type(exc).__name__)
-            lines.append('BYTECODE addBulletToGunItem')
-            lines.append(_pb_disassemble_method(getattr(obj, 'addBulletToGunItem', None)))
-            for method_name in ('addBulletToGunItem', 'notifyBulletChange',
-                                'recycleWeaponBullet', 'selectSlotIdxWeapon'):
-                try:
-                    method = getattr(obj, method_name, None)
-                    func = getattr(method, '__func__', None) or getattr(method, 'im_func', None) or method
-                    code = getattr(func, '__code__', None) or getattr(func, 'func_code', None)
-                    if code is not None:
-                        n = code.co_argcount
-                        names = code.co_varnames[:n]
-                        lines.append('  %s argc=%d' % (method_name, n))
-                        for arg in names:
-                            lines.append('    arg=%s' % arg)
-                        lines.append('    refs:')
-                        for ref in code.co_names[:24]:
-                            lines.append('      %s' % ref)
-                    else:
-                        lines.append('  %s doc=%r' %
-                                     (method_name, getattr(method, '__doc__', None)))
-                except Exception as exc:
-                    lines.append('  %s inspect=%s' % (method_name, type(exc).__name__))
-        if _pb_is_mapping(obj):
-            try:
-                lines.append('  entries=%r' % ([(k, repr(obj[k])[:120]) for k in list(obj.keys())[:30]],))
-            except Exception:
-                pass
-        try:
-            if not isinstance(obj, (str, bytes, dict)) and hasattr(obj, '__len__') and hasattr(obj, '__getitem__'):
-                lines.append('  length=%r' % len(obj))
-                for i in range(min(len(obj), 12)):
-                    entry = obj[i]
-                    lines.append('  [%d]=%s' % (i, repr(entry)[:180]))
-                    if i == getattr(me, 'dtsCurWeapon', -1):
-                        try:
-                            for key in dir(entry):
-                                if any(word in key.lower() for word in
-                                       ('bullet', 'ammo', 'item', 'count', 'weapon', 'id')):
-                                    value = getattr(entry, key)
-                                    lines.append('    %s=%s' %
-                                                 (key, '<callable>' if callable(value) else repr(value)[:80]))
-                        except Exception:
-                            pass
-        except Exception:
-            pass
-        for name in dir(obj):
-            if name.startswith('__') or not any(t in name.lower() for t in
-                    ('ammo', 'bullet', 'item', 'count', 'content', 'stack', 'slot', 'bag')):
-                continue
-            try:
-                value = getattr(obj, name)
-                lines.append('  %s=%s' % (name, '<callable>' if callable(value) else repr(value)[:160]))
-            except Exception:
-                pass
-            if len(lines) >= 140:
-                break
-    slot = getattr(me, 'dtsCurWeapon', None)
-    if isinstance(slot, int):
-        weapon = getattr(me, 'dtsWeapon%d' % slot, None)
-        if _pb_is_mapping(weapon):
-            try:
-                for key in list(weapon.keys())[:30]:
-                    lines.append('weapon %s=%s' % (key, repr(weapon[key])[:80]))
-            except Exception:
-                pass
-    _pb_publish(_RYOMENX_DIR + '/clone_ammo_diag.txt', '\n'.join(lines))
-
-
-def _pb_clone_equipped_ammo():
-    result = 'ERR No equipped weapon'
-    try:
-        me = BigWorld.player()
-        if me is not None and 'BattleGround' in type(me).__name__:
-            probe = _pb_ar_probe(me)
-            if probe and probe[0] is not None:
-                before = getattr(probe[6], 'ammo_box_bullet_count', None)
-                cap = getattr(probe[6], 'magazine_capacity', None)
-                if isinstance(before, (int, float)) and before >= 0 and isinstance(cap, (int, float)) and cap > 0:
-                    amount = max(int(before), int(cap))
-                    ok, detail = _pb_ar_add_bag_reserve(me, _pb_ar_active_slot(me), probe[5], amount)
-                    after = getattr(probe[6], 'ammo_box_bullet_count', None)
-                    _PB_AR_STATE['clone_detail'] = detail + ' before=%r after=%r' % (before, after)
-                    if ok and isinstance(after, (int, float)) and after > before:
-                        result = 'OK %d %d' % (int(before), int(after))
-                    else:
-                        result = 'ERR ' + ('Bag call made; reserve unchanged' if ok else detail)
-                else:
-                    result = 'ERR Equipped ammo data unavailable'
-                _pb_clone_bag_diag(me, probe)
-    except Exception:
-        result = 'ERR Clone unavailable'
-    _pb_publish(_RYOMENX_DIR + '/clone_ammo.txt', result)
-    return result
-
-
-def _pb_bag_field(obj, name):
-    if obj is None:
-        return None
-    try:
-        if _pb_is_mapping(obj) and name in obj:
-            return obj[name]
-    except Exception:
-        pass
-    try:
-        return getattr(obj, name, None)
-    except Exception:
-        return None
-
-
-def _pb_ar_add_bag_reserve(me, slot, gun_id, amount):
-    """Use the v146 WeaponBag item ID for the selected gun slot."""
-    try:
-        bags = [obj for obj in _pb_logic_objs(me)
-                if type(obj).__name__ == 'WeaponBag' and
-                callable(getattr(obj, 'addBulletToGunItem', None))]
-        if len(bags) != 1:
-            return False, 'WeaponBag controller unavailable'
-        bag = bags[0]
-        if slot != _pb_ar_active_slot(me):
-            return False, 'bag slot changed'
-        bag_slot = getattr(bag, '_cur_slot_idx', slot)
-        if isinstance(bag_slot, int) and bag_slot != slot:
-            return False, 'bag slot mismatch'
-        mapping = getattr(bag, '_idx2weapon_map', None)
-        gun = None
-        if mapping is not None:
-            try: gun = mapping.get(slot)
-            except Exception:
-                try: gun = mapping[slot]
-                except Exception: pass
-        item_id = _pb_ar_read(gun, '_dtsItemID') if gun is not None else None
-        if item_id is None or item_id <= 0:
-            return False, 'bag item ID unavailable'
-        ids = set()
-        rail = _pb_bag_field(gun, '_curRail')
-        for owner in (gun, rail, _pb_bag_field(gun, 'legacyProperties'),
-                      _pb_bag_field(rail, 'legacyProperties')):
-            if owner is None:
-                continue
-            bullet_data = None
-            getter = _pb_bag_field(owner, 'getGunBulletData')
-            if callable(getter):
-                try: bullet_data = getter()
-                except Exception: pass
-            for data in (owner, _pb_bag_field(owner, 'railData'),
-                         bullet_data, _pb_bag_field(bullet_data, 'railData')):
-                if data is None:
-                    continue
-                bullet_id = _pb_ar_read(data, 'BULLET_ID')
-                if bullet_id is not None and bullet_id > 0:
-                    ids.add(bullet_id)
-        if len(ids) != 1:
-            return False, 'bullet ID unresolved: %r' % sorted(ids)
-        add = getattr(bag, 'addBulletToGunItem', None)
-        if not callable(add) or amount <= 0:
-            return False, 'bag add unavailable'
-        add(item_id, next(iter(ids)), int(amount))
-        return True, ('bag add requested weapon=%d item=%d bullet=%d count=%d' %
-                      (gun_id, item_id, next(iter(ids)), amount))
-    except Exception as exc:
-        return False, 'bag add error: %s' % type(exc).__name__
-
-
 def _pb_auto_reload(me, c):
 
     import time
@@ -4289,9 +4020,6 @@ def _pb_auto_reload(me, c):
 
     unlim_on = bool(c and len(c) > 44 and c[44] >= 0.5)
 
-    if _PB_AR_STATE.get('unlim_on') and not unlim_on:
-        for key in ('bag_seeded', 'bag_pending', 'bag_failed', 'bag_attempts'):
-            _PB_AR_STATE.pop(key, None)
     _PB_AR_STATE['ar_on'] = ar_on
 
     _PB_AR_STATE['unlim_on'] = unlim_on
@@ -4302,10 +4030,7 @@ def _pb_auto_reload(me, c):
 
         _PB_AR_STATE['state'] = 'idle'
 
-        _PB_AR_STATE.pop('bag_seeded', None)
-        _PB_AR_STATE.pop('bag_pending', None)
-        _PB_AR_STATE.pop('bag_failed', None)
-        _PB_AR_STATE.pop('bag_attempts', None)
+        _PB_AR_STATE['reload_seen'] = False
 
         return
 
@@ -4321,6 +4046,8 @@ def _pb_auto_reload(me, c):
 
         _PB_AR_STATE['state'] = 'idle'
 
+        _PB_AR_STATE['reload_seen'] = False
+
         return
 
     wep_key, cur_ammo, attr_max, targets, objs, gun_id, cur_mag = res
@@ -4334,6 +4061,8 @@ def _pb_auto_reload(me, c):
         _PB_AR_STATE['key'] = wep_key
 
         _PB_AR_STATE['state'] = 'idle'
+
+        _PB_AR_STATE['reload_seen'] = False
 
         _PB_AR_STATE['switch_until'] = now + 0.50
 
@@ -4359,81 +4088,59 @@ def _pb_auto_reload(me, c):
 
     st = _PB_AR_STATE['state']
 
-    # Option A: Real Gun Reload (Infinite Reserve + Seamless Refill)
-    # Replenishes reserve ammunition so the player never runs out of ammo.
-    # Magazine rounds decrease normally per shot, allowing each gun's authentic
-    # reload animation and timing (e.g. M4A1 1.8s, AKM 2.2s) to play cleanly without interruption.
-    # Once the native reload animation finishes, replenishes the magazine to eff_cap so it never loops at 0!
+    # The magazine depletes naturally. Keep a local reserve for native reload,
+    # then refill only after the game's reload state has ended.
     if unlim_on and cur_mag is not None:
         cap = getattr(cur_mag, 'magazine_capacity', None)
         if not (isinstance(cap, (int, float)) and 1 <= int(cap) <= 400):
-            cap = attr_max if (isinstance(attr_max, (int, float)) and 1 <= int(attr_max) <= 400) else 30
+            cap = attr_max if (isinstance(attr_max, (int, float)) and 1 <= int(attr_max) <= 400) else 0
         eff_cap = int(cap)
 
         reserve = getattr(cur_mag, 'ammo_box_bullet_count', None)
         reserve_key = (gun_id, getattr(me, 'dtsCurRailID', None))
         floors = _PB_AR_STATE.setdefault('reserve_highwater', {})
-        if isinstance(reserve, (int, float)) and not isinstance(reserve, bool) and reserve >= 0:
+        if eff_cap > 0 and isinstance(reserve, (int, float)) and not isinstance(reserve, bool) and reserve >= 0:
             floor = max(floors.get(reserve_key, 0), int(reserve), eff_cap * 5)
             floors[reserve_key] = floor
-            seeded = _PB_AR_STATE.setdefault('bag_seeded', set())
-            pending = _PB_AR_STATE.setdefault('bag_pending', {})
-            failed = _PB_AR_STATE.setdefault('bag_failed', set())
-            prior = pending.get(reserve_key)
-            if prior is not None:
-                before, started = prior
-                if reserve > before:
-                    _PB_AR_STATE['bag_verified'] = True
-                    del pending[reserve_key]
-                elif now - started > 3.5:
-                    _PB_AR_STATE['bag_detail'] = 'bag call made; reserve unchanged'
-                    failed.add(reserve_key)
-                    del pending[reserve_key]
-            if reserve_key not in failed and (reserve_key not in seeded or
-                    (reserve < floor and reserve_key not in pending)):
-                slot = _pb_ar_active_slot(me)
-                last_attempt = _PB_AR_STATE.setdefault('bag_attempts', {}).get(reserve_key, 0.0)
-                if now - last_attempt >= 3.5 and reserve_key not in pending:
-                    _PB_AR_STATE['bag_attempts'][reserve_key] = now
-                    amount = floor if reserve_key not in seeded else floor - int(reserve)
-                    ok, detail = _pb_ar_add_bag_reserve(me, slot, gun_id, amount)
-                    _PB_AR_STATE['bag_detail'] = detail
-                    if ok:
-                        seeded.add(reserve_key)
-                        pending[reserve_key] = (reserve, now)
+            if reserve < floor:
+                try: cur_mag.ammo_box_bullet_count = floor
+                except Exception: pass
 
         # If gun was reloading, check if reload animation completed
-        if st in ('reloading', 'retry'):
+        if eff_cap > 0 and st == 'reloading':
             elapsed = now - _PB_AR_STATE.get('reload_start', 0.0)
             reloading_now = _pb_ar_is_reloading(me, objs)
-            if not reloading_now and (cur_ammo > 0 or elapsed >= 3.5):
-                refill_count = cur_ammo if cur_ammo > 0 else eff_cap
-                # A weapon may expose read-only mirrors. One failed mirror must
-                # not prevent later mirrors (including the HUD) from updating.
+            if reloading_now:
+                _PB_AR_STATE['reload_seen'] = True
+            if not reloading_now and (_PB_AR_STATE.get('reload_seen') or
+                                      cur_ammo > 0 or elapsed >= 2.25):
                 restored = False
                 try:
-                    cur_mag.bullet_count = refill_count
-                    restored = int(cur_mag.bullet_count) == refill_count
+                    cur_mag.bullet_count = eff_cap
+                    restored = int(cur_mag.bullet_count) == eff_cap
                 except Exception:
                     pass
-                for t_obj, t_attr, t_idx in (targets or []):
-                    try:
-                        if t_idx is not None:
-                            t_obj[t_idx] = refill_count
-                        elif t_attr and not (t_obj is cur_mag and t_attr == 'bullet_count'):
-                            setattr(t_obj, t_attr, refill_count)
-                    except Exception:
-                        continue
                 if restored:
-                    cur_ammo = refill_count
+                    for t_obj, t_attr, t_idx in (targets or []):
+                        try:
+                            if t_idx is not None:
+                                t_obj[t_idx] = eff_cap
+                            elif t_attr and not (t_obj is cur_mag and t_attr == 'bullet_count'):
+                                setattr(t_obj, t_attr, eff_cap)
+                        except Exception:
+                            continue
+                    cur_ammo = eff_cap
                     _PB_AR_STATE['state'] = 'idle'
+                    _PB_AR_STATE['reload_seen'] = False
+                else:
+                    _PB_AR_STATE['state'] = 'failed'
 
     if cur_ammo is None:
         return
 
     st = _PB_AR_STATE['state']
     if cur_ammo > 0:
-        if st in ('reloading', 'retry'):
+        if st == 'reloading':
             if not _pb_ar_is_reloading(me, objs):
                 _PB_AR_STATE['state'] = 'idle'
         return
@@ -4441,23 +4148,24 @@ def _pb_auto_reload(me, c):
     # When empty (cur_ammo == 0):
     # If the game's native reload animation is actively playing, never interrupt it!
     if _pb_ar_is_reloading(me, objs):
-        if st not in ('reloading', 'retry'):
+        if st != 'reloading':
             _PB_AR_STATE['state'] = 'reloading'
             _PB_AR_STATE['reload_start'] = now
+            _PB_AR_STATE['reload_seen'] = True
         return
 
     # One reload request per empty magazine; a failed refill must not spam reload.
-    if st in ('reloading', 'retry', 'failed'):
-        if st != 'failed' and now - _PB_AR_STATE.get('reload_start', 0.0) >= 3.5:
-            _PB_AR_STATE['state'] = 'failed'
+    if st in ('reloading', 'failed'):
         return
 
     if _pb_ar_trigger_reload(me, objs):
         _PB_AR_STATE['state'] = 'reloading'
         _PB_AR_STATE['reload_start'] = now
+        _PB_AR_STATE['reload_seen'] = False
     else:
-        _PB_AR_STATE['state'] = 'failed'
+        _PB_AR_STATE['state'] = 'reloading' if unlim_on else 'failed'
         _PB_AR_STATE['reload_start'] = now
+        _PB_AR_STATE['reload_seen'] = False
 
 
 
