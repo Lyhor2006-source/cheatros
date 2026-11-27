@@ -117,11 +117,7 @@ void SaveSettings() {
     dict[@"fov_circle"] = @(aim.showFovCircle);
     dict[@"smooth"] = @(aim.smoothness);
 
-    // Memory feature states
-    dict[@"feat_speed"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::SpeedHack).enabled);
-    dict[@"feat_parachute"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::FastParachute).enabled);
-    dict[@"feat_nofall"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::NoFallDamage).enabled);
-    dict[@"feat_unlimitedammo"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::UnlimitedAmmo).enabled);
+    // Note: Memory features are strictly session-only (never persisted; always default OFF on app launch)
 
     NSUserDefaults* defs = [NSUserDefaults standardUserDefaults];
     [defs setObject:dict forKey:@"RyomenX.Settings.v1"];
@@ -214,16 +210,7 @@ void LoadSettings() {
         layout.engineStarted = true;
     }
 
-    bool spd = false, para = false, nof = false, unlim = false;
-    readBool(@"feat_speed", spd);
-    readBool(@"feat_parachute", para);
-    readBool(@"feat_nofall", nof);
-    readBool(@"feat_unlimitedammo", unlim);
-
-    if (spd) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::SpeedHack, true, layout.speedMultiplier);
-    if (para) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::FastParachute, true, 1.0f);
-    if (nof) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::NoFallDamage, true, 1.0f);
-    if (unlim) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::UnlimitedAmmo, true, 1.0f);
+    // Memory features intentionally not restored (always default OFF on game launch)
 
     if (ctx.backend) {
         if (layout.engineStarted) {
@@ -1064,7 +1051,7 @@ void RenderMainMenu() {
                                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 
     layout.menuBackdropActive = true;
-    if (ImGui::Begin("##RyomenXMainWindow", nullptr, winFlags)) {
+    if (ImGui::Begin("##AnhAhKaNgHahMainWindow", nullptr, winFlags)) {
         ImGui::SetWindowFontScale(scale);
         ImVec2 wp = ImGui::GetWindowPos();
         ImVec2 ws = ImGui::GetWindowSize();
@@ -1092,7 +1079,7 @@ void RenderMainMenu() {
         DrawVectorIcon(dl, 13, ImVec2(chipMin.x + 14.0f, chipMin.y + 14.0f), IM_COL32(239, 205, 128, 255), 20.0f);
 
         ImFont* titleFont = gHeaderTitleFont ? gHeaderTitleFont : ImGui::GetFont();
-        const char* titleTxt = "RYOMENX IOS KYR";
+        const char* titleTxt = "AnhAhKaNgHah";
         ImVec2 titlePos(chipMax.x + 8.0f, headerPos.y + 5.0f);
         dl->AddText(titleFont, 14.5f, titlePos, IM_COL32(243, 242, 247, 255), titleTxt);
         dl->AddText(ImGui::GetFont(), 9.0f, ImVec2(titlePos.x, titlePos.y + 16.0f), IM_COL32(181, 165, 201, 255), "OVERLAY ACTIVE");

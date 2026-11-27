@@ -147,7 +147,7 @@ struct UiLayoutState {
 
     bool crosshair = false;
     bool watermark = true;
-    bool hideRecording = false;
+    bool hideRecording = true;
     bool showFeatureIcons = false;
     bool showTeleportIcons = false;
     bool engineStarted = false;
