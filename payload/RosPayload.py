@@ -4748,7 +4748,7 @@ def _pb_esp(g):
 
                 else:
 
-                    bone_values = [(0, 0.0, 0.0) for bone_key in _PB_SKEL]
+                    bone_values = []
 
                 on = 1 if (fs is not None or hs is not None) else 0
 

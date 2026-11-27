@@ -77,6 +77,7 @@ public:
             entities_.clear();
             lockablePlayers_.clear();
             inBattle_ = false;
+            lastEspData_.clear();
             return;
         }
 
@@ -90,7 +91,7 @@ public:
             TryInjectPayload();
         }
 
-        if (payloadInjected_ && (tickCount_ % 2 == 0)) {
+        if (payloadInjected_) {
             RefreshEspFrame(screenW, screenH);
         }
     }
@@ -106,6 +107,7 @@ public:
             entities_.clear();
             lockablePlayers_.clear();
             inBattle_ = false;
+            lastEspData_.clear();
             WriteAimConfig(844.0f, 390.0f);
             IosUI::PushToast("Engine paused");
         } else {
@@ -461,6 +463,7 @@ private:
             entities_.clear();
             lockablePlayers_.clear();
             inBattle_ = false;
+            lastEspData_.clear();
             return;
         }
         std::fseek(fp, 0, SEEK_SET);
@@ -468,6 +471,11 @@ private:
         const size_t nread = std::fread(&data[0], 1, static_cast<size_t>(fsize), fp);
         std::fclose(fp);
         data.resize(nread);
+
+        if (data == lastEspData_ && screenW == lastEspW_ && screenH == lastEspH_) return;
+        lastEspData_ = data;
+        lastEspW_ = screenW;
+        lastEspH_ = screenH;
 
         ParseEspBuffer(data, screenW, screenH);
     }
@@ -598,6 +606,9 @@ private:
     std::string baseDir_;
     std::string espPath_;
     std::string cfgPath_;
+    std::string lastEspData_;
+    float lastEspW_ = 0.0f;
+    float lastEspH_ = 0.0f;
 
     std::vector<IosUIBridge::OverlayEntity> entities_;
     std::vector<IosUIBridge::PlayerTargetEntry> lockablePlayers_;
