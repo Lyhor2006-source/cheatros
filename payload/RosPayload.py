@@ -4002,59 +4002,87 @@ def _pb_auto_reload(me, c):
 
         return
 
-    # Only the reserve is replenished. The game consumes magazine rounds and
-    # performs the magazine refill through its own reload state machine.
+    if unlim_on:
+        cap = getattr(cur_mag, 'magazine_capacity', None) if cur_mag is not None else None
+        if not (isinstance(cap, (int, float)) and 1 <= int(cap) <= 400):
+            cap = attr_max if (isinstance(attr_max, (int, float)) and 1 <= int(attr_max) <= 400) else 30
+        eff_cap = int(cap)
 
-    if unlim_on and cur_mag is not None:
+        if cur_mag is not None:
+            try:
+                bc = getattr(cur_mag, 'bullet_count', None)
+                if bc is None or bc < eff_cap:
+                    cur_mag.bullet_count = eff_cap
+                cur_mag.ammo_box_bullet_count = eff_cap * 5
+            except Exception:
+                pass
 
-        cap = getattr(cur_mag, 'magazine_capacity', None)
+            if not getattr(cur_mag, '_rx_unlim_hooked', False):
+                try:
+                    cur_mag._rx_orig_dec = getattr(cur_mag, 'decBulletFromMagazine', None)
+                    def _rx_dec(self, *a, **kw):
+                        return 0
+                    def _rx_inf(self, *a, **kw):
+                        return True
+                    cur_mag.decBulletFromMagazine = _rx_dec.__get__(cur_mag, type(cur_mag))
+                    cur_mag._bulletInfinite = _rx_inf.__get__(cur_mag, type(cur_mag))
+                    cur_mag._rx_unlim_hooked = True
+                except Exception:
+                    pass
 
-        reserve = getattr(cur_mag, 'ammo_box_bullet_count', None)
+        if targets:
+            for tgt in targets:
+                try:
+                    t_obj, t_attr, t_idx = tgt
+                    if t_idx is not None:
+                        if t_idx < len(t_obj) and (t_obj[t_idx] is None or t_obj[t_idx] < eff_cap):
+                            t_obj[t_idx] = eff_cap
+                    elif t_attr:
+                        val = getattr(t_obj, t_attr, None)
+                        if val is None or val < eff_cap:
+                            setattr(t_obj, t_attr, eff_cap)
+                except Exception:
+                    pass
 
-        if isinstance(cap, (int, float)) and 1 <= cap <= 400 and isinstance(reserve, (int, float)) and reserve < cap:
+        _PB_AR_STATE['state'] = 'idle'
+        return
 
-            try: cur_mag.ammo_box_bullet_count = int(cap) * 5
-
-            except Exception: pass
+    # If unlim_on is False, restore hooked methods if previously active
+    if cur_mag is not None and getattr(cur_mag, '_rx_unlim_hooked', False):
+        try:
+            orig = getattr(cur_mag, '_rx_orig_dec', None)
+            if orig is not None:
+                cur_mag.decBulletFromMagazine = orig
+            elif hasattr(cur_mag, 'decBulletFromMagazine'):
+                delattr(cur_mag, 'decBulletFromMagazine')
+            if hasattr(cur_mag, '_bulletInfinite'):
+                delattr(cur_mag, '_bulletInfinite')
+            cur_mag._rx_unlim_hooked = False
+        except Exception:
+            pass
 
     if cur_ammo is None:
-
         return
 
     st = _PB_AR_STATE['state']
-
     if cur_ammo > 0:
-
-        # A rising magazine count after empty is the reload completion signal.
-
         if st == 'reloading':
-
             _PB_AR_STATE['state'] = 'idle'
-
         return
 
     if _pb_ar_is_reloading(me, objs):
-
         _PB_AR_STATE['state'] = 'reloading'
-
         _PB_AR_STATE['reload_start'] = now
-
         return
 
-    if st in ('reloading', 'retry') and now - _PB_AR_STATE['reload_start'] < 1.0:
-
+    if st in ('reloading', 'retry') and now - _PB_AR_STATE['reload_start'] < 2.5:
         return
 
     if _pb_ar_trigger_reload(me, objs):
-
         _PB_AR_STATE['state'] = 'reloading'
-
         _PB_AR_STATE['reload_start'] = now
-
     else:
-
         _PB_AR_STATE['state'] = 'retry'
-
         _PB_AR_STATE['reload_start'] = now
 
 

@@ -11,9 +11,14 @@ code = compile(ast.Module(body=[function], type_ignores=[]), "RosPayload.py", "e
 
 
 class Magazine:
-    magazine_capacity = 30
-    bullet_count = 5
-    ammo_box_bullet_count = 0
+    def __init__(self):
+        self.magazine_capacity = 30
+        self.bullet_count = 5
+        self.ammo_box_bullet_count = 0
+
+    def decBulletFromMagazine(self, count=1):
+        self.bullet_count -= count
+        return self.bullet_count
 
 
 magazine = Magazine()
@@ -39,25 +44,31 @@ tick = env["_pb_auto_reload"]
 config = [0] * 45
 config[44] = 1
 
-tick(object(), config)  # Initial weapon selection.
-state["switch_until"] = 0.0
+# Initial weapon selection tick
 tick(object(), config)
-assert magazine.bullet_count == 5 and magazine.ammo_box_bullet_count == 150
+state["switch_until"] = 0.0
+# Active tick: magazine tops off to capacity, reserve to capacity*5, dec hooked
+tick(object(), config)
+assert magazine.bullet_count == 30 and magazine.ammo_box_bullet_count == 150
 assert calls == []
 
-magazine.bullet_count = 0
-tick(object(), config)
-assert calls == ["reload"] and magazine.bullet_count == 0
+# Firing weapon: decBulletFromMagazine returns 0, bullet_count stays 30
+ret = magazine.decBulletFromMagazine(1)
+assert ret == 0 and magazine.bullet_count == 30
+assert calls == []
 
-magazine.bullet_count = 30  # Simulate the game's completed reload.
+# No reload requested when unlimited ammo is active
 tick(object(), config)
-assert state["state"] == "idle" and magazine.bullet_count == 30
+assert state["state"] == "idle" and calls == []
 
+# When unlimited ammo is off, but auto reload is on
 config[44] = 0
 config[43] = 1
-magazine.ammo_box_bullet_count = 12
+# Hook should be restored when unlim is turned off
+tick(object(), config)
+assert not getattr(magazine, "_rx_unlim_hooked", False)
 magazine.bullet_count = 0
 tick(object(), config)
-assert calls == ["reload", "reload"] and magazine.ammo_box_bullet_count == 12
+assert calls == ["reload"]
 
-print("reload smoke: magazine drains, real reload requested, reserve replenished only for unlimited ammo")
+print("reload smoke: unlimited ammo tops off instantly and hooks consumption; normal reload triggers only when unlim is off")

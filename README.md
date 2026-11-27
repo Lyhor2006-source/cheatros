@@ -15,6 +15,6 @@ Push to `main` (or run **Actions -> Build iOS UI Dylib -> Run workflow**) on `ma
 
 Edit `payload/RosPayload.py`, then run `python tools/embed_payload.py` before building. `src/RosPayloadData.cpp` is generated from that source. Run `python tools/smoke_reload.py` for the ammo/reload controller smoke check.
 
-Unlimited Ammo replenishes reserve ammunition when low. Magazine rounds still decrease on shots, and an empty magazine requests the game's reload action. Auto Reload requests the same action without adding reserve ammunition. Neither feature writes a filled magazine directly.
+Unlimited Ammo tops off magazine and reserve capacity instantly and hooks magazine bullet consumption (`decBulletFromMagazine` -> 0), preventing empty-magazine states and eliminating reload-loop animation locks completely. Auto Reload has been deprecated and merged into this unified behavior.
 
 Fast Parachute uses the native memory scan and reports active only after a patch applies. If its target allocation is not present yet, it stays enabled and retries every two seconds.

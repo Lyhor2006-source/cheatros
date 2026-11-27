@@ -52,6 +52,13 @@ void PushToast(const char* text) {
     ctx.toastStartTime = ImGui::GetCurrentContext() ? ImGui::GetTime() : 0.0;
 }
 
+static NSString* GetSettingsPlistPath() {
+    NSArray* paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString* dir = [paths firstObject];
+    if (!dir) return nil;
+    return [dir stringByAppendingPathComponent:@"ryomenx_settings.plist"];
+}
+
 void SaveSettings() {
     auto& ctx = IosUIBridge::GetContext();
     const auto& esp = ctx.esp;
@@ -114,17 +121,28 @@ void SaveSettings() {
     dict[@"feat_speed"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::SpeedHack).enabled);
     dict[@"feat_parachute"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::FastParachute).enabled);
     dict[@"feat_nofall"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::NoFallDamage).enabled);
-    dict[@"feat_autoreload"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::AutoReload).enabled);
     dict[@"feat_unlimitedammo"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::UnlimitedAmmo).enabled);
 
     NSUserDefaults* defs = [NSUserDefaults standardUserDefaults];
     [defs setObject:dict forKey:@"RyomenX.Settings.v1"];
     [defs synchronize];
+
+    NSString* filePath = GetSettingsPlistPath();
+    if (filePath) {
+        [dict writeToFile:filePath atomically:YES];
+    }
 }
 
 void LoadSettings() {
-    NSUserDefaults* defs = [NSUserDefaults standardUserDefaults];
-    NSDictionary* dict = [defs dictionaryForKey:@"RyomenX.Settings.v1"];
+    NSDictionary* dict = nil;
+    NSString* filePath = GetSettingsPlistPath();
+    if (filePath && [[NSFileManager defaultManager] fileExistsAtPath:filePath]) {
+        dict = [NSDictionary dictionaryWithContentsOfFile:filePath];
+    }
+    if (!dict) {
+        NSUserDefaults* defs = [NSUserDefaults standardUserDefaults];
+        dict = [defs dictionaryForKey:@"RyomenX.Settings.v1"];
+    }
     if (!dict) return;
 
     auto& ctx = IosUIBridge::GetContext();
@@ -196,20 +214,21 @@ void LoadSettings() {
         layout.engineStarted = true;
     }
 
-    bool spd = false, para = false, nof = false, ar = false, unlim = false;
+    bool spd = false, para = false, nof = false, unlim = false;
     readBool(@"feat_speed", spd);
     readBool(@"feat_parachute", para);
     readBool(@"feat_nofall", nof);
-    readBool(@"feat_autoreload", ar);
     readBool(@"feat_unlimitedammo", unlim);
 
     if (spd) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::SpeedHack, true, layout.speedMultiplier);
     if (para) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::FastParachute, true, 1.0f);
     if (nof) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::NoFallDamage, true, 1.0f);
-    if (ar) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::AutoReload, true, 1.0f);
     if (unlim) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::UnlimitedAmmo, true, 1.0f);
 
     if (ctx.backend) {
+        if (layout.engineStarted) {
+            ctx.backend->SetEngineEnabled(true);
+        }
         ctx.backend->SetSpeedMultiplier(layout.speedMultiplier);
         if (esp.ipadView) {
             ctx.backend->SetIpadView(true, esp.cameraFovDeg);
@@ -912,14 +931,12 @@ void RenderMemoryTab() {
         EndCard();
 
         ImGui::TableNextColumn();
-        BeginCard("##unlimited", "UNLIMITED", 2, false);
+        BeginCard("##unlimited", "UNLIMITED", 1, false);
         static bool unlimAmmo = false;
-        static bool autoReload = false;
         RenderFeatureToggle("Unlimited Ammo", &unlimAmmo, IosUIBridge::MemoryFeature::UnlimitedAmmo);
-        RenderFeatureToggle("Auto Reload", &autoReload, IosUIBridge::MemoryFeature::AutoReload);
         if (IosUIBridge::GetContext().backend) {
             auto st = IosUIBridge::GetContext().backend->GetMemoryFeatureStatus(
-                IosUIBridge::MemoryFeature::AutoReload);
+                IosUIBridge::MemoryFeature::UnlimitedAmmo);
             if (st.enabled && !st.detail.empty()) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.90f, 0.72f, 0.75f));
                 ImGui::TextUnformatted(st.detail.c_str());
