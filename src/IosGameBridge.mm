@@ -142,7 +142,22 @@ public:
     }
 
     IosUIBridge::FeatureStatus GetMemoryFeatureStatus(IosUIBridge::MemoryFeature feature) override {
-        return MemoryCheats::GetStatus(feature);
+        auto status = MemoryCheats::GetStatus(feature);
+        if (feature == IosUIBridge::MemoryFeature::HealerAim && status.enabled) {
+            if (!inBattle_) {
+                status.detail = "Waiting for match";
+            } else {
+                const std::string path = baseDir_ + "/healer_status.txt";
+                FILE* fp = std::fopen(path.c_str(), "rb");
+                if (fp) {
+                    char buf[192] = {};
+                    const size_t count = std::fread(buf, 1, sizeof(buf) - 1, fp);
+                    std::fclose(fp);
+                    if (count) status.detail.assign(buf, count);
+                }
+            }
+        }
+        return status;
     }
 
     bool RequestMemoryFeature(IosUIBridge::MemoryFeature feature, bool enable, float param) override {

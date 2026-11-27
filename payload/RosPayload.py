@@ -441,10 +441,15 @@ def _pb_healer_active(me, c):
     weapon = getattr(me, 'dtsWeapon%d' % slot, None) if isinstance(slot, int) else None
     if weapon is None:
         return False
-    wid = getattr(weapon, 'weaponID', None) or getattr(weapon, 'weaponId', None) or getattr(weapon, 'itemID', None)
+    wid = (_pb_ar_read(weapon, 'weaponID') or _pb_ar_read(weapon, 'weaponId') or
+           _pb_ar_read(weapon, 'itemID'))
     if wid in (90050, 90205, 90265):
         return True
-    name = str(getattr(weapon, 'name', '') or getattr(weapon, 'weaponName', '')).lower()
+    if _pb_is_mapping(weapon):
+        try: name = str(weapon.get('name', '') or weapon.get('weaponName', '')).lower()
+        except Exception: name = ''
+    else:
+        name = str(getattr(weapon, 'name', '') or getattr(weapon, 'weaponName', '')).lower()
     return 'healer' in name or 'shenshang' in name
 
 
@@ -1578,8 +1583,6 @@ def _pb_silent(me, cands, allc, tm_cands=None):
             hx, hy = _pb_aim_screen(hs, W, H, metrics)
             ax, ay = hx, hy + 0.35 * (fy - hy)
             if not (0.0 <= ax <= W and 0.0 <= ay <= H):
-                continue
-            if (ax - cx) ** 2 + (ay - cy) ** 2 > fov ** 2:
                 continue
             rank = (0 if kn else (1 if hp < mhp else 2), dist)
             if rank_best is None or rank < rank_best:
@@ -4654,6 +4657,14 @@ def _pb_esp(g):
             _PB_DIAG_TS = time.time()
 
             _pb_diag(me, ents)
+            if frame_cfg and len(frame_cfg) > 45 and frame_cfg[45] >= 0.5:
+                slot = _pb_ar_active_slot(me)
+                gun_id = _pb_ar_slot_gun_id(me, slot) if slot is not None else 0
+                _pb_publish(_RYOMENX_DIR + '/healer_status.txt',
+                            'Gun %s held %d | team %d target %d\nRay hook %d redirects %d' %
+                            (gun_id, int(_pb_healer_active(me, frame_cfg)), len(tm_cands),
+                             int(_PB_SIL['t'] is not None), int(_PB_NRS['cls'] is not None),
+                             _PB_SIL['n']))
 
     except _PBNotBattle:
 
