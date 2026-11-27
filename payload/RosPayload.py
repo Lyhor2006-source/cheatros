@@ -4027,6 +4027,7 @@ def _pb_clone_bag_diag(me, probe):
     lines.append('unlimited bag=%s verified=%r' %
                  (_PB_AR_STATE.get('bag_detail', 'not attempted'),
                   _PB_AR_STATE.get('bag_verified', False)))
+    lines.append('clone=%s' % _PB_AR_STATE.get('clone_detail', 'not attempted'))
     objects = []
     for name in ('weapon_bag', 'weaponBag', 'dtsPackage', 'inventory', 'bag', 'itemBag', 'backpack'):
         try:
@@ -4119,8 +4120,20 @@ def _pb_clone_equipped_ammo():
         if me is not None and 'BattleGround' in type(me).__name__:
             probe = _pb_ar_probe(me)
             if probe and probe[0] is not None:
+                before = getattr(probe[6], 'ammo_box_bullet_count', None)
+                cap = getattr(probe[6], 'magazine_capacity', None)
+                if isinstance(before, (int, float)) and before >= 0 and isinstance(cap, (int, float)) and cap > 0:
+                    amount = max(int(before), int(cap))
+                    ok, detail = _pb_ar_add_bag_reserve(me, _pb_ar_active_slot(me), probe[5], amount)
+                    after = getattr(probe[6], 'ammo_box_bullet_count', None)
+                    _PB_AR_STATE['clone_detail'] = detail + ' before=%r after=%r' % (before, after)
+                    if ok and isinstance(after, (int, float)) and after > before:
+                        result = 'OK %d %d' % (int(before), int(after))
+                    else:
+                        result = 'ERR ' + ('Bag call made; reserve unchanged' if ok else detail)
+                else:
+                    result = 'ERR Equipped ammo data unavailable'
                 _pb_clone_bag_diag(me, probe)
-                result = 'ERR Bag inventory not mapped; send clone_ammo_diag.txt'
     except Exception:
         result = 'ERR Clone unavailable'
     _pb_publish(_RYOMENX_DIR + '/clone_ammo.txt', result)
@@ -4138,6 +4151,13 @@ def _pb_ar_add_bag_reserve(me, slot, gun_id, amount):
             except Exception:
                 try: gun = mapping[slot]
                 except Exception: pass
+            if gun is None or _pb_ar_read(gun, '_dtsItemID') != gun_id:
+                try:
+                    matches = [candidate for candidate in mapping.values()
+                               if _pb_ar_read(candidate, '_dtsItemID') == gun_id]
+                    gun = matches[0] if len(matches) == 1 else None
+                except Exception:
+                    gun = None
         if gun is None or _pb_ar_read(gun, '_dtsItemID') != gun_id:
             return False, 'bag gun mismatch'
         ids = set()
@@ -4146,7 +4166,13 @@ def _pb_ar_add_bag_reserve(me, slot, gun_id, amount):
                       getattr(rail, 'legacyProperties', None)):
             if owner is None:
                 continue
-            for data in (owner, getattr(owner, 'railData', None)):
+            bullet_data = None
+            getter = getattr(owner, 'getGunBulletData', None)
+            if callable(getter):
+                try: bullet_data = getter()
+                except Exception: pass
+            for data in (owner, getattr(owner, 'railData', None),
+                         bullet_data, getattr(bullet_data, 'railData', None)):
                 if data is None:
                     continue
                 bullet_id = _pb_ar_read(data, 'BULLET_ID')

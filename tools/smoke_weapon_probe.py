@@ -11,7 +11,7 @@ source = Path(__file__).resolve().parents[1] / 'payload' / 'RosPayload.py'
 tree = ast.parse(source.read_text(encoding='utf-8'))
 probe = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == '_pb_ar_probe')
 clone = [n for n in tree.body if isinstance(n, ast.FunctionDef)
-         and n.name in ('_pb_clone_bag_diag', '_pb_clone_equipped_ammo')]
+         and n.name in ('_pb_clone_bag_diag', '_pb_clone_equipped_ammo', '_pb_ar_add_bag_reserve')]
 rifle_mag = Obj(bullet_count=5, magazine_capacity=30, ammo_box_bullet_count=70)
 shot_mag = Obj(bullet_count=0, magazine_capacity=5, ammo_box_bullet_count=70)
 rifle_rail = Obj(_magazine=rifle_mag, bulletCount=5, maxBullet=30, weaponID=101)
@@ -21,6 +21,17 @@ shotgun = Obj(_curRail=shot_rail, weaponID=202)
 hud = [5, 0]
 player = BattleGroundPlayer(dtsCurWeapon=1, dtsCurRailID=202, dtsWeapon1=Obj(weaponID=202),
              dtsWeaponMagazineBullets=hud, weapon_mgr=Obj(_weapon=shotgun))
+class Bag:
+    def __init__(self):
+        self._idx2weapon_map = {1: Obj(_dtsItemID=202,
+            legacyProperties=Obj(getGunBulletData=lambda: Obj(railData=Obj(BULLET_ID=9))))}
+        self.calls = []
+
+    def addBulletToGunItem(self, gun_id, bullet_id, amount):
+        self.calls.append((gun_id, bullet_id, amount))
+        shot_mag.ammo_box_bullet_count += amount
+
+player.weapon_bag = Bag()
 published = []
 env = {'_PB_GUN_SLOTS': (0, 1, 2, 6, 8, 9),
        '_PB_AMMO_ATTRS': ('bulletCount',), '_PB_MAX_ATTRS': ('maxBullet',),
@@ -42,8 +53,9 @@ assert all(obj is not rifle and obj is not rifle_rail and obj is not rifle_mag
            for obj, attr, idx in targets)
 assert any(obj is hud and idx == 1 for obj, attr, idx in targets)
 print('weapon probe smoke: selected shotgun; inactive rifle magazine untouched')
-assert env['_pb_clone_equipped_ammo']().startswith('ERR Bag inventory not mapped')
-assert shot_mag.ammo_box_bullet_count == 70 and rifle_mag.ammo_box_bullet_count == 70
+assert env['_pb_clone_equipped_ammo']() == 'OK 70 140'
+assert player.weapon_bag.calls == [(202, 9, 70)]
+assert shot_mag.ammo_box_bullet_count == 140 and rifle_mag.ammo_box_bullet_count == 70
 assert shot_mag.bullet_count == 0 and hud == [5, 0]
 assert published[-2].startswith('CLONE AMMO BAG DIAG')
-print('clone ammo smoke: no false inventory success; diagnostic recorded')
+print('clone ammo smoke: selected gun reserve doubled through WeaponBag; inactive gun untouched')
