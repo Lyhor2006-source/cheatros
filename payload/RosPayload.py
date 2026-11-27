@@ -4042,6 +4042,23 @@ def _pb_clone_bag_diag(me, probe):
             continue
         seen.add(id(obj))
         lines.append('%s type=%s' % (label, type(obj).__name__))
+        if type(obj).__name__ == 'WeaponBag':
+            for method_name in ('addBulletToGunItem', 'notifyBulletChange',
+                                'recycleWeaponBullet', 'selectSlotIdxWeapon'):
+                try:
+                    method = getattr(obj, method_name, None)
+                    func = getattr(method, '__func__', None) or getattr(method, 'im_func', None) or method
+                    code = getattr(func, '__code__', None) or getattr(func, 'func_code', None)
+                    if code is not None:
+                        n = code.co_argcount
+                        names = code.co_varnames[:n]
+                        lines.append('  %s args=%r names=%r' %
+                                     (method_name, names, code.co_names[:18]))
+                    else:
+                        lines.append('  %s doc=%r' %
+                                     (method_name, getattr(method, '__doc__', None)))
+                except Exception as exc:
+                    lines.append('  %s inspect=%s' % (method_name, type(exc).__name__))
         if _pb_is_mapping(obj):
             try:
                 lines.append('  entries=%r' % ([(k, repr(obj[k])[:120]) for k in list(obj.keys())[:30]],))
