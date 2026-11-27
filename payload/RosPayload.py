@@ -4015,6 +4015,27 @@ def _pb_ar_trigger_reload(me, objs):
 
 
 
+def _pb_disassemble_method(method):
+    try:
+        import dis
+        import sys
+        try:
+            from io import StringIO
+        except ImportError:
+            from StringIO import StringIO
+        output = StringIO()
+        old_stdout = sys.stdout
+        try:
+            sys.stdout = output
+            func = getattr(method, '__func__', None) or getattr(method, 'im_func', None) or method
+            dis.dis(func)
+        finally:
+            sys.stdout = old_stdout
+        return output.getvalue()[:24000]
+    except Exception as exc:
+        return 'disassembly unavailable: %s' % type(exc).__name__
+
+
 def _pb_clone_bag_diag(me, probe):
     lines = ['CLONE AMMO BAG DIAG']
     lines.append('slot=%r gun=%r rail=%r' % (
@@ -4075,6 +4096,8 @@ def _pb_clone_bag_diag(me, probe):
                                          (label, type(exc).__name__))
             except Exception as exc:
                 lines.append('  selected item inspect=%s' % type(exc).__name__)
+            lines.append('BYTECODE addBulletToGunItem')
+            lines.append(_pb_disassemble_method(getattr(obj, 'addBulletToGunItem', None)))
             for method_name in ('addBulletToGunItem', 'notifyBulletChange',
                                 'recycleWeaponBullet', 'selectSlotIdxWeapon'):
                 try:

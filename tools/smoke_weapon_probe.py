@@ -12,7 +12,7 @@ tree = ast.parse(source.read_text(encoding='utf-8'))
 probe = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == '_pb_ar_probe')
 clone = [n for n in tree.body if isinstance(n, ast.FunctionDef)
          and n.name in ('_pb_clone_bag_diag', '_pb_clone_equipped_ammo',
-                        '_pb_ar_add_bag_reserve', '_pb_bag_field')]
+                        '_pb_ar_add_bag_reserve', '_pb_bag_field', '_pb_disassemble_method')]
 rifle_mag = Obj(bullet_count=5, magazine_capacity=30, ammo_box_bullet_count=70)
 shot_mag = Obj(bullet_count=0, magazine_capacity=5, ammo_box_bullet_count=70)
 rifle_rail = Obj(_magazine=rifle_mag, bulletCount=5, maxBullet=30, weaponID=101)
