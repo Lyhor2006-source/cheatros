@@ -183,6 +183,7 @@ void RyomenXSetCaptureProtectionEnabled(RyomenXOverlayView* overlay, BOOL enable
     _hub_backdrop.hidden = YES;
 
     ImGui_ImplMetal_Init(dev);
+    IosUI::LoadSettings();
 
     NSNotificationCenter* nc = [NSNotificationCenter defaultCenter];
     [nc addObserver:self selector:@selector(applicationSuspended:) name:UIApplicationWillResignActiveNotification object:nil];
@@ -202,6 +203,7 @@ void RyomenXSetCaptureProtectionEnabled(RyomenXOverlayView* overlay, BOOL enable
 
 - (void)applicationSuspended:(NSNotification*)note {
     (void)note;
+    IosUI::SaveSettings();
     self.paused = YES;
 }
 

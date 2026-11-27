@@ -1,4 +1,6 @@
 #import "IosUI.h"
+#import "MemoryCheats.h"
+#import <Foundation/Foundation.h>
 
 #include "imgui_internal.h"
 #include <algorithm>
@@ -49,11 +51,176 @@ void PushToast(const char* text) {
     ctx.toastStartTime = ImGui::GetCurrentContext() ? ImGui::GetTime() : 0.0;
 }
 
-static ImVec2 ResolveSlotPos(float* storedXY, ImVec2 fallbackPos, float viewW, float viewH, float w, float h) {
-    if (storedXY[0] >= 0.0f && storedXY[1] >= 0.0f) {
+void SaveSettings() {
+    auto& ctx = IosUIBridge::GetContext();
+    const auto& esp = ctx.esp;
+    const auto& aim = ctx.aim;
+    const auto& layout = ctx.layout;
+
+    NSMutableDictionary* dict = [NSMutableDictionary dictionaryWithCapacity:64];
+
+    // ESP settings
+    dict[@"esp"] = @(esp.masterEsp);
+    dict[@"style"] = @(esp.style);
+    dict[@"box_style"] = @(esp.boxStyle);
+    dict[@"box"] = @(esp.boxes);
+    dict[@"skeleton"] = @(esp.skeleton);
+    dict[@"health"] = @(esp.health);
+    dict[@"name"] = @(esp.name);
+    dict[@"team"] = @(esp.teamId);
+    dict[@"player_id"] = @(esp.playerId);
+    dict[@"distance"] = @(esp.distance);
+    dict[@"edge"] = @(esp.edgeArrows);
+    dict[@"filter_bots"] = @(esp.hideBots);
+    dict[@"lines"] = @(esp.snaplines);
+    dict[@"line_origin"] = @(esp.snaplineOrigin);
+    dict[@"esp_range"] = @(esp.espRangeMeters);
+
+    // Layout settings
+    dict[@"scale"] = @(layout.uiScale);
+    dict[@"crosshair"] = @(layout.crosshair);
+    dict[@"watermark"] = @(layout.watermark);
+    dict[@"hide_record"] = @(layout.hideRecording);
+    dict[@"panel_x"] = @(layout.menuPosX);
+    dict[@"panel_y"] = @(layout.menuPosY);
+    dict[@"panel_width"] = @(layout.menuWidth);
+    dict[@"panel_height"] = @(layout.menuHeight);
+    dict[@"ipad_view"] = @(esp.ipadView);
+    dict[@"ipad_fov"] = @(esp.cameraFovDeg);
+    dict[@"vip_float_features"] = @(layout.showFeatureIcons);
+    dict[@"vip_float_teleport"] = @(layout.showTeleportIcons);
+    dict[@"memory_speed"] = @(layout.speedMultiplier);
+
+    // Aim settings
+    dict[@"auto_fire"] = @(aim.autoFire);
+    dict[@"aim"] = @(aim.masterAim);
+    dict[@"bone"] = @(aim.targetBone);
+    dict[@"fov"] = @(aim.fovRadiusPx);
+    dict[@"aim_range"] = @(aim.aimRangeMeters);
+    dict[@"silent"] = @(aim.silentAim);
+    dict[@"silent360"] = @(aim.silent360);
+    dict[@"visible"] = @(aim.visibleCheck);
+    dict[@"ignore_knocked"] = @(aim.ignoreKnocked);
+    dict[@"instant"] = @(aim.instantAim);
+    dict[@"trigger"] = @(aim.triggerMode);
+    dict[@"silent_range"] = @(aim.silentDistMeters);
+    dict[@"power"] = @(aim.aimPower);
+    dict[@"aim_bots"] = @(aim.targetBots);
+    dict[@"fov_circle"] = @(aim.showFovCircle);
+    dict[@"smooth"] = @(aim.smoothness);
+
+    // Memory feature states
+    dict[@"feat_speed"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::SpeedHack).enabled);
+    dict[@"feat_parachute"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::FastParachute).enabled);
+    dict[@"feat_nofall"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::NoFallDamage).enabled);
+    dict[@"feat_autoreload"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::AutoReload).enabled);
+    dict[@"feat_unlimitedammo"] = @(MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::UnlimitedAmmo).enabled);
+
+    NSUserDefaults* defs = [NSUserDefaults standardUserDefaults];
+    [defs setObject:dict forKey:@"RyomenX.Settings.v1"];
+    [defs synchronize];
+}
+
+void LoadSettings() {
+    NSUserDefaults* defs = [NSUserDefaults standardUserDefaults];
+    NSDictionary* dict = [defs dictionaryForKey:@"RyomenX.Settings.v1"];
+    if (!dict) return;
+
+    auto& ctx = IosUIBridge::GetContext();
+    auto& esp = ctx.esp;
+    auto& aim = ctx.aim;
+    auto& layout = ctx.layout;
+
+    auto readBool = [&](NSString* k, bool& out) {
+        id v = dict[k];
+        if (v && [v respondsToSelector:@selector(boolValue)]) out = [v boolValue];
+    };
+    auto readInt = [&](NSString* k, int& out) {
+        id v = dict[k];
+        if (v && [v respondsToSelector:@selector(intValue)]) out = [v intValue];
+    };
+    auto readFloat = [&](NSString* k, float& out) {
+        id v = dict[k];
+        if (v && [v respondsToSelector:@selector(floatValue)]) out = [v floatValue];
+    };
+
+    readBool(@"esp", esp.masterEsp);
+    readInt(@"style", esp.style);
+    readInt(@"box_style", esp.boxStyle);
+    readBool(@"box", esp.boxes);
+    readBool(@"skeleton", esp.skeleton);
+    readBool(@"health", esp.health);
+    readBool(@"name", esp.name);
+    readBool(@"team", esp.teamId);
+    readBool(@"player_id", esp.playerId);
+    readBool(@"distance", esp.distance);
+    readBool(@"edge", esp.edgeArrows);
+    readBool(@"filter_bots", esp.hideBots);
+    readBool(@"lines", esp.snaplines);
+    readInt(@"line_origin", esp.snaplineOrigin);
+    readFloat(@"esp_range", esp.espRangeMeters);
+
+    readFloat(@"scale", layout.uiScale);
+    readBool(@"crosshair", layout.crosshair);
+    readBool(@"watermark", layout.watermark);
+    readBool(@"hide_record", layout.hideRecording);
+    readFloat(@"panel_x", layout.menuPosX);
+    readFloat(@"panel_y", layout.menuPosY);
+    readFloat(@"panel_width", layout.menuWidth);
+    readFloat(@"panel_height", layout.menuHeight);
+    readBool(@"ipad_view", esp.ipadView);
+    readFloat(@"ipad_fov", esp.cameraFovDeg);
+    readBool(@"vip_float_features", layout.showFeatureIcons);
+    readBool(@"vip_float_teleport", layout.showTeleportIcons);
+    readFloat(@"memory_speed", layout.speedMultiplier);
+
+    readBool(@"auto_fire", aim.autoFire);
+    readBool(@"aim", aim.masterAim);
+    readInt(@"bone", aim.targetBone);
+    readFloat(@"fov", aim.fovRadiusPx);
+    readFloat(@"aim_range", aim.aimRangeMeters);
+    readBool(@"silent", aim.silentAim);
+    readBool(@"silent360", aim.silent360);
+    readBool(@"visible", aim.visibleCheck);
+    readBool(@"ignore_knocked", aim.ignoreKnocked);
+    readBool(@"instant", aim.instantAim);
+    readInt(@"trigger", aim.triggerMode);
+    readFloat(@"silent_range", aim.silentDistMeters);
+    readFloat(@"power", aim.aimPower);
+    readBool(@"aim_bots", aim.targetBots);
+    readBool(@"fov_circle", aim.showFovCircle);
+    readFloat(@"smooth", aim.smoothness);
+
+    if (esp.masterEsp || aim.masterAim) {
+        layout.engineStarted = true;
+    }
+
+    bool spd = false, para = false, nof = false, ar = false, unlim = false;
+    readBool(@"feat_speed", spd);
+    readBool(@"feat_parachute", para);
+    readBool(@"feat_nofall", nof);
+    readBool(@"feat_autoreload", ar);
+    readBool(@"feat_unlimitedammo", unlim);
+
+    if (spd) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::SpeedHack, true, layout.speedMultiplier);
+    if (para) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::FastParachute, true, 1.0f);
+    if (nof) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::NoFallDamage, true, 1.0f);
+    if (ar) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::AutoReload, true, 1.0f);
+    if (unlim) MemoryCheats::RequestFeature(IosUIBridge::MemoryFeature::UnlimitedAmmo, true, 1.0f);
+
+    if (ctx.backend) {
+        ctx.backend->SetSpeedMultiplier(layout.speedMultiplier);
+        if (esp.ipadView) {
+            ctx.backend->SetIpadView(true, esp.cameraFovDeg);
+        }
+    }
+}
+
+static ImVec2 ResolveSlotPos(ImVec2 storedPos, ImVec2 fallbackPos, float viewW, float viewH, float w, float h) {
+    if (storedPos.x >= 0.0f && storedPos.y >= 0.0f) {
         return ImVec2(
-            std::clamp(storedXY[0], 4.0f, std::max(4.0f, viewW - w - 4.0f)),
-            std::clamp(storedXY[1], 4.0f, std::max(4.0f, viewH - h - 4.0f)));
+            std::clamp(storedPos.x, 4.0f, std::max(4.0f, viewW - w - 4.0f)),
+            std::clamp(storedPos.y, 4.0f, std::max(4.0f, viewH - h - 4.0f)));
     }
     return fallbackPos;
 }
@@ -61,13 +228,26 @@ static ImVec2 ResolveSlotPos(float* storedXY, ImVec2 fallbackPos, float viewW, f
 static ImVec2 GetFeatureIconPos(int idx, float viewW, float viewH) {
     auto& layout = IosUIBridge::GetContext().layout;
     ImVec2 defPos(18.0f, 70.0f + idx * 42.0f);
-    return ResolveSlotPos(layout.featurePos[idx], defPos, viewW, viewH, 94.0f, 30.0f);
+    return ResolveSlotPos(ImVec2(layout.featurePos[idx][0], layout.featurePos[idx][1]),
+                          defPos, viewW, viewH, 94.0f, 30.0f);
 }
 
 static ImVec2 GetIslandPos(float width, float height, float viewW, float viewH) {
     auto& layout = IosUIBridge::GetContext().layout;
     ImVec2 defPos((viewW - width) * 0.5f, 10.0f);
-    return ResolveSlotPos(&layout.islandPosX, defPos, viewW, viewH, width, height);
+    return ResolveSlotPos(ImVec2(layout.islandPosX, layout.islandPosY),
+                          defPos, viewW, viewH, width, height);
+}
+
+static ImRect GetIslandTouchRect(float viewW, float viewH) {
+    const auto& layout = IosUIBridge::GetContext().layout;
+    if (layout.hubBackdropActive) {
+        return ImRect(layout.hubBackdropX, layout.hubBackdropY,
+                      layout.hubBackdropX + layout.hubBackdropW,
+                      layout.hubBackdropY + layout.hubBackdropH);
+    }
+    const ImVec2 origin = GetIslandPos(114.0f, 30.0f, viewW, viewH);
+    return ImRect(origin.x, origin.y, origin.x + 114.0f, origin.y + 30.0f);
 }
 
 static bool RectContains(ImVec2 origin, float w, float h, float px, float py) {
@@ -362,6 +542,7 @@ bool ToggleSwitch(const char* label, bool* value, const char* badgeText, ImU32 b
     if (pressed && value) {
         *value = !(*value);
         PushToast((*value) ? (std::string(label) + " ON").c_str() : (std::string(label) + " OFF").c_str());
+        SaveSettings();
     }
 
     bool hovered = ImGui::IsItemHovered();
@@ -416,6 +597,7 @@ bool LabeledCombo(const char* label, const char* id, int* current, const char* c
             if (ImGui::Selectable(items[i], selected)) {
                 *current = i;
                 changed = true;
+                SaveSettings();
             }
             if (selected) {
                 ImGui::SetItemDefaultFocus();
@@ -431,15 +613,9 @@ bool LabeledCombo(const char* label, const char* id, int* current, const char* c
 }
 
 bool LabeledSlider(const char* id, const char* label, float* value, float minVal, float maxVal, const char* fmt) {
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), fmt, *value);
-
     ImVec2 p = ImGui::GetCursorScreenPos();
     float availW = std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f);
     ImGui::TextUnformatted(label);
-    ImVec2 valSz = ImGui::CalcTextSize(buf);
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddText(ImVec2(p.x + availW - valSz.x, p.y), IM_COL32(70, 221, 225, 255), buf);
 
     ImVec2 trackOrigin = ImGui::GetCursorScreenPos();
     float trackW = std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f);
@@ -454,8 +630,15 @@ bool LabeledSlider(const char* id, const char* label, float* value, float minVal
         if (std::fabs(newVal - *value) > 1e-4f) {
             *value = newVal;
             changed = true;
+            SaveSettings();
         }
     }
+
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), fmt, *value);
+    ImVec2 valSz = ImGui::CalcTextSize(buf);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddText(ImVec2(p.x + availW - valSz.x, p.y), IM_COL32(70, 221, 225, 255), buf);
 
     float norm = (maxVal > minVal) ? std::clamp((*value - minVal) / (maxVal - minVal), 0.0f, 1.0f) : 0.0f;
     float cy = trackOrigin.y + 13.0f;
@@ -531,6 +714,7 @@ void RenderFeatureRow(IosUIBridge::MemoryFeature feature, const char* customLabe
         } else {
             PushToast((std::string(name) + " requested").c_str());
         }
+        SaveSettings();
     }
 }
 
@@ -556,6 +740,7 @@ void RenderFeatureToggle(const char* label, bool* localState, IosUIBridge::Memor
     if (ToggleSwitch(label, localState, badge, badgeCol) && be) {
         be->RequestMemoryFeature(feature, *localState, 1.0f);
         PushToast((std::string(label) + (*localState ? " requested" : " off")).c_str());
+        SaveSettings();
     }
     ImGui::EndDisabled();
 }
@@ -776,6 +961,11 @@ void RenderSettingsTab() {
         BeginCard("##settings_actions", "ACTIONS", 1, true);
         ImGui::TextColored(ImVec4(0.45f, 0.90f, 0.88f, 1.00f), "Status: Standalone Overlay Active");
         ImGui::Spacing();
+        if (ImGui::Button("Save Settings Now", ImVec2(bw2, 32.0f))) {
+            SaveSettings();
+            PushToast("Settings saved successfully");
+        }
+        ImGui::Spacing();
 
         float bw2 = std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f);
         if (ImGui::Button("Hide Menu", ImVec2(bw2, 30.0f))) {
@@ -808,8 +998,8 @@ void RenderMainMenu() {
     float scale = std::clamp(layout.uiScale, 0.70f, 1.20f);
 
     float targetW = (screenW < screenH) ? 520.0f : (screenH >= 600.0f ? 420.0f : 340.0f);
-    targetW = std::clamp(targetW * scale, 1.0f, std::min(std::max(screenW - 12.0f, 1.0f), 260.0f * 2.0f));
-    float targetH = std::clamp(screenH * 0.80f * scale, 1.0f, std::max(screenH - 12.0f, 1.0f));
+    targetW = std::clamp(targetW, 1.0f, std::min(std::max(screenW - 12.0f, 1.0f), 260.0f * 2.0f));
+    float targetH = std::clamp(screenH * 0.80f, 1.0f, std::max(screenH - 12.0f, 1.0f));
 
     if (layout.menuWidth <= 0.0f) layout.menuWidth = std::max(targetW, 420.0f);
     if (layout.menuHeight <= 0.0f) layout.menuHeight = targetH;
@@ -833,6 +1023,7 @@ void RenderMainMenu() {
 
     layout.menuBackdropActive = true;
     if (ImGui::Begin("##RyomenXMainWindow", nullptr, winFlags)) {
+        ImGui::SetWindowFontScale(scale);
         ImVec2 wp = ImGui::GetWindowPos();
         ImVec2 ws = ImGui::GetWindowSize();
         layout.menuPosX = wp.x;
@@ -979,7 +1170,7 @@ void RenderDynamicIsland(ImDrawList* draw, ImVec2 displaySize, int players, int 
     layout.hubBackdropW = pillW;
     layout.hubBackdropH = pillH;
 
-    float pulse = std::sinf(static_cast<float>(now) * 2.0f) * 0.5f + 0.5f;
+    float pulse = std::sin(static_cast<float>(now) * 2.0f) * 0.5f + 0.5f;
     ImU32 glowA = static_cast<ImU32>(22.0f + pulse * 18.0f);
     draw->AddRect(
         ImVec2(origin.x - 1.0f, origin.y - 1.0f),
@@ -1013,27 +1204,54 @@ void RenderEdgeArrow(ImDrawList* draw, ImVec2 displaySize, float angleRad, bool 
     if (!draw) return;
     float cx = displaySize.x * 0.5f;
     float cy = displaySize.y * 0.5f;
-    float rad = std::min(displaySize.x, displaySize.y) * 0.42f;
     float cs = std::cosf(angleRad);
     float sn = std::sinf(angleRad);
-
-    ImVec2 tip(cx + cs * rad, cy + sn * rad);
-    ImVec2 left(tip.x - cs * 14.0f - sn * 8.0f, tip.y - sn * 14.0f + cs * 8.0f);
-    ImVec2 right(tip.x - cs * 14.0f + sn * 8.0f, tip.y - sn * 14.0f - cs * 8.0f);
-    ImU32 fillCol = isBot ? IM_COL32(34, 197, 94, 255) : IM_COL32(255, 48, 64, 255);
-
-    draw->AddTriangleFilled(tip, left, right, fillCol);
-    draw->AddTriangle(tip, left, right, IM_COL32(245, 250, 255, 160), 0.7f);
 
     char dBuf[24];
     std::snprintf(dBuf, sizeof(dBuf), "%.0fm", distMeters);
     ImFont* font = ImGui::GetFont();
     ImVec2 txtSz = font->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, dBuf);
-    ImVec2 txtCenter(tip.x - cs * 25.0f, tip.y - sn * 25.0f);
-    ImVec2 bgMin(txtCenter.x - txtSz.x * 0.5f - 5.0f, txtCenter.y - txtSz.y * 0.5f - 2.0f);
-    ImVec2 bgMax(txtCenter.x + txtSz.x * 0.5f + 5.0f, txtCenter.y + txtSz.y * 0.5f + 2.0f);
-    draw->AddRectFilled(bgMin, bgMax, IM_COL32(12, 20, 31, 215), 7.0f);
-    draw->AddText(font, 11.0f, ImVec2(bgMin.x + 5.0f, bgMin.y + 2.0f), fillCol, dBuf);
+
+    float pillW = txtSz.x + 10.0f;
+    float pillH = txtSz.y + 6.0f;
+    float halfW = pillW * 0.5f + 4.0f;
+    float halfH = pillH * 0.5f + 4.0f;
+
+    float minX = halfW + 6.0f;
+    float maxX = displaySize.x - halfW - 6.0f;
+    float minY = halfH + 6.0f;
+    float maxY = displaySize.y - halfH - 6.0f;
+
+    // Ray-box intersection to clamp badge directly against screen borders
+    float t = 10000.0f;
+    if (std::abs(cs) > 1e-4f) {
+        float tx = (cs > 0.0f) ? (maxX - cx) / cs : (minX - cx) / cs;
+        if (tx > 0.0f) t = std::min(t, tx);
+    }
+    if (std::abs(sn) > 1e-4f) {
+        float ty = (sn > 0.0f) ? (maxY - cy) / sn : (minY - cy) / sn;
+        if (ty > 0.0f) t = std::min(t, ty);
+    }
+
+    ImVec2 center(cx + cs * t, cy + sn * t);
+    center.x = std::clamp(center.x, minX, maxX);
+    center.y = std::clamp(center.y, minY, maxY);
+
+    ImU32 fillCol = isBot ? IM_COL32(34, 197, 94, 245) : IM_COL32(235, 45, 45, 245);
+
+    // Direction pointer triangle pointing off-screen
+    ImVec2 tip(center.x + cs * 12.0f, center.y + sn * 12.0f);
+    ImVec2 p1(center.x - sn * 5.0f, center.y + cs * 5.0f);
+    ImVec2 p2(center.x + sn * 5.0f, center.y - cs * 5.0f);
+    draw->AddTriangleFilled(tip, p1, p2, fillCol);
+
+    // Rounded speech-bubble pill body
+    ImVec2 bMin(center.x - pillW * 0.5f, center.y - pillH * 0.5f);
+    ImVec2 bMax(center.x + pillW * 0.5f, center.y + pillH * 0.5f);
+    draw->AddRectFilled(bMin, bMax, fillCol, 4.0f);
+
+    // Crisp pure white text
+    draw->AddText(font, 11.0f, ImVec2(bMin.x + 5.0f, bMin.y + 3.0f), IM_COL32(255, 255, 255, 255), dBuf);
 }
 
 void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
@@ -1054,7 +1272,7 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
             if (e.distanceMeters > esp.espRangeMeters) continue;
             if (esp.hideBots && e.isBot) continue;
 
-            ImU32 col = e.isBot ? IM_COL32(34, 197, 94, 255) : IM_COL32(255, 48, 64, 255);
+            ImU32 col = e.isBot ? IM_COL32(34, 197, 94, 255) : IM_COL32(235, 45, 45, 255);
             if (!e.onScreen) {
                 if (esp.edgeArrows) {
                     RenderEdgeArrow(draw, displaySize, e.offscreenAngleRad, e.isBot, e.distanceMeters);
@@ -1062,17 +1280,17 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
                 continue;
             }
 
+            // Snaplines - Radiating from top center compass (matches unlimitedammo.dylib screenshot)
             if (esp.snaplines) {
-                ImVec2 origin(displaySize.x * 0.5f, 0.0f);
-                if (esp.snaplineOrigin == 1) origin = ImVec2(displaySize.x * 0.5f, displaySize.y * 0.5f);
+                ImVec2 origin(displaySize.x * 0.5f, 26.0f);
+                if (esp.snaplineOrigin == 0) origin = ImVec2(displaySize.x * 0.5f, 0.0f);
+                else if (esp.snaplineOrigin == 1) origin = ImVec2(displaySize.x * 0.5f, displaySize.y * 0.5f);
                 else if (esp.snaplineOrigin == 2) origin = ImVec2(displaySize.x * 0.5f, displaySize.y);
-                else if (esp.snaplineOrigin == 3) {
-                    ImVec2 isPos = GetIslandPos(114.0f, 30.0f, displaySize.x, displaySize.y);
-                    origin = ImVec2(isPos.x + 57.0f, isPos.y + 30.0f);
-                }
-                draw->AddLine(origin, ImVec2((e.minX + e.maxX) * 0.5f, e.minY), col, 1.2f);
+                else if (esp.snaplineOrigin == 3) origin = ImVec2(displaySize.x * 0.5f, 26.0f);
+                draw->AddLine(origin, ImVec2((e.minX + e.maxX) * 0.5f, e.minY), col, 1.5f);
             }
 
+            // 2D Bounding Box - Clean crisp red lines without black outlines
             if (esp.boxes) {
                 if (esp.boxStyle == 1) { // Corner brackets
                     float w = e.maxX - e.minX;
@@ -1080,8 +1298,6 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
                     float cw = std::max(w * 0.25f, 4.0f);
                     float ch = std::max(h * 0.20f, 4.0f);
                     auto corner = [&](ImVec2 a, ImVec2 b, ImVec2 c) {
-                        draw->AddLine(a, b, 0xB4000000, 2.8f);
-                        draw->AddLine(a, c, 0xB4000000, 2.8f);
                         draw->AddLine(a, b, col, 1.8f);
                         draw->AddLine(a, c, col, 1.8f);
                     };
@@ -1089,7 +1305,7 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
                     corner(ImVec2(e.maxX, e.minY), ImVec2(e.maxX - cw, e.minY), ImVec2(e.maxX, e.minY + ch));
                     corner(ImVec2(e.minX, e.maxY), ImVec2(e.minX + cw, e.maxY), ImVec2(e.minX, e.maxY - ch));
                     corner(ImVec2(e.maxX, e.maxY), ImVec2(e.maxX - cw, e.maxY), ImVec2(e.maxX, e.maxY - ch));
-                } else if (esp.boxStyle == 2) { // 3D perspective box
+                } else if (esp.boxStyle == 2) { // 3D box
                     float w = e.maxX - e.minX;
                     float h = e.maxY - e.minY;
                     float dx = w * 0.22f;
@@ -1102,13 +1318,12 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
                     draw->AddLine(b2, b3, col, 1.5f); draw->AddLine(b3, b0, col, 1.5f);
                     draw->AddLine(f0, f1, col, 1.5f); draw->AddLine(f1, f2, col, 1.5f);
                     draw->AddLine(f2, f3, col, 1.5f); draw->AddLine(f3, f0, col, 1.5f);
-                } else { // Standard 2D outlined box
-                    draw->AddRect(ImVec2(e.minX - 1, e.minY - 1), ImVec2(e.maxX + 1, e.maxY + 1), 0xA0000000, 0.0f, 0, 1.5f);
+                } else { // Standard 2D Box
                     draw->AddRect(ImVec2(e.minX, e.minY), ImVec2(e.maxX, e.maxY), col, 0.0f, 0, 1.5f);
-                    draw->AddRect(ImVec2(e.minX + 1, e.minY + 1), ImVec2(e.maxX - 1, e.maxY - 1), 0x78000000, 0.0f, 0, 1.0f);
                 }
             }
 
+            // Skeleton - Pure white lines and head circle
             if (esp.skeleton) {
                 for (const auto& pair : kBonePairs) {
                     if (e.boneValid[pair[0]] && e.boneValid[pair[1]]) {
@@ -1119,11 +1334,12 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
                     }
                 }
                 if (e.boneValid[0]) {
-                    float hr = std::clamp((e.maxY - e.minY) * 0.08f, 3.0f, 10.0f);
+                    float hr = std::clamp((e.maxY - e.minY) * 0.08f, 3.0f, 9.0f);
                     draw->AddCircle(ImVec2(e.bonePos[0][0], e.bonePos[0][1]), hr, IM_COL32(255, 255, 255, 255), 16, 1.5f);
                 }
             }
 
+            // Health bar
             if (esp.health && e.maxHealth > 0.0f) {
                 float frac = std::clamp(e.health / e.maxHealth, 0.0f, 1.0f);
                 float h = e.maxY - e.minY;
@@ -1134,19 +1350,31 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
                 draw->AddRectFilled(ImVec2(hbMin.x, e.maxY - h * frac), hbMax, hCol);
             }
 
-            if (esp.name || esp.distance) {
-                char infoBuf[128];
-                if (e.isBot) {
-                    std::snprintf(infoBuf, sizeof(infoBuf), "BOT %s %.0fm", e.name.c_str(), e.distanceMeters);
-                } else {
-                    std::snprintf(infoBuf, sizeof(infoBuf), "%s %.0fm", e.name.c_str(), e.distanceMeters);
-                }
-                ImFont* font = ImGui::GetFont();
-                ImVec2 sz = font->CalcTextSizeA(10.5f, FLT_MAX, 0.0f, infoBuf);
-                ImVec2 txtPos((e.minX + e.maxX - sz.x) * 0.5f, e.minY - sz.y - 3.0f);
-                draw->AddRectFilled(ImVec2(txtPos.x - 4.0f, txtPos.y - 1.0f), ImVec2(txtPos.x + sz.x + 4.0f, txtPos.y + sz.y + 1.0f), IM_COL32(10, 12, 16, 180), 3.0f);
-                draw->AddText(font, 10.5f, ImVec2(txtPos.x + 1.0f, txtPos.y + 1.0f), IM_COL32(0, 0, 0, 220), infoBuf);
-                draw->AddText(font, 10.5f, txtPos, col, infoBuf);
+            ImFont* font = ImGui::GetFont();
+
+            // Name Badge (above box) - Solid red filled rounded pill with pure white text
+            if (esp.name && !e.name.empty()) {
+                const char* nText = e.name.c_str();
+                ImVec2 sz = font->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, nText);
+                float badgeW = sz.x + 8.0f;
+                float badgeH = sz.y + 4.0f;
+                ImVec2 bMin((e.minX + e.maxX - badgeW) * 0.5f, e.minY - badgeH - 2.0f);
+                ImVec2 bMax(bMin.x + badgeW, bMin.y + badgeH);
+                draw->AddRectFilled(bMin, bMax, col, 3.0f);
+                draw->AddText(font, 11.0f, ImVec2(bMin.x + 4.0f, bMin.y + 2.0f), IM_COL32(255, 255, 255, 255), nText);
+            }
+
+            // Distance Badge (below box) - Solid red filled rounded pill with pure white text
+            if (esp.distance) {
+                char dBuf[32];
+                std::snprintf(dBuf, sizeof(dBuf), "%.0fm", e.distanceMeters);
+                ImVec2 dSz = font->CalcTextSizeA(10.5f, FLT_MAX, 0.0f, dBuf);
+                float dBadgeW = dSz.x + 6.0f;
+                float dBadgeH = dSz.y + 3.0f;
+                ImVec2 dMin((e.minX + e.maxX - dBadgeW) * 0.5f, e.maxY + 2.0f);
+                ImVec2 dMax(dMin.x + dBadgeW, dMin.y + dBadgeH);
+                draw->AddRectFilled(dMin, dMax, col, 3.0f);
+                draw->AddText(font, 10.5f, ImVec2(dMin.x + 3.0f, dMin.y + 1.5f), IM_COL32(255, 255, 255, 255), dBuf);
             }
         }
     }
@@ -1208,6 +1436,18 @@ void RenderFrame() {
     auto& layout = ctx.layout;
     ImGuiIO& io = ImGui::GetIO();
 
+    static bool gSettingsLoaded = false;
+    if (!gSettingsLoaded) {
+        gSettingsLoaded = true;
+        LoadSettings();
+    }
+
+    static bool sPrevMenuOpen = false;
+    if (sPrevMenuOpen && !layout.menuOpen) {
+        SaveSettings();
+    }
+    sPrevMenuOpen = layout.menuOpen;
+
     layout.menuBackdropActive = false;
     layout.hubBackdropActive = false;
 
@@ -1244,10 +1484,7 @@ bool IsPointInMenuOrFloatingHUD(float x, float y, float viewW, float viewH) {
         }
     }
 
-    ImVec2 island = GetIslandPos(114.0f, 30.0f, viewW, viewH);
-    if (RectContains(island, 114.0f, 30.0f, x, y)) return true;
-
-    return false;
+    return GetIslandTouchRect(viewW, viewH).Contains(ImVec2(x, y));
 }
 
 void OnTouchBegan(float x, float y, float viewW, float viewH) {
@@ -1264,8 +1501,8 @@ void OnTouchBegan(float x, float y, float viewW, float viewH) {
         }
     }
 
-    ImVec2 island = GetIslandPos(114.0f, 30.0f, viewW, viewH);
-    if (RectContains(island, 114.0f, 30.0f, x, y)) { gDraggedHudKind = 1; gDragOrigPos = island; }
+    const ImRect island = GetIslandTouchRect(viewW, viewH);
+    if (island.Contains(ImVec2(x, y))) { gDraggedHudKind = 1; gDragOrigPos = island.Min; }
 }
 
 void OnTouchMoved(float x, float y, float viewW, float viewH) {
@@ -1279,9 +1516,8 @@ void OnTouchMoved(float x, float y, float viewW, float viewH) {
     }
     if (!gDragMoved) return;
 
-    float w = 94.0f;
-    float h = 30.0f;
-    if (gDraggedHudKind == 1) { w = 114.0f; h = 30.0f; }
+    const float w = gDraggedHudKind == 1 ? GetIslandTouchRect(viewW, viewH).GetWidth() : 94.0f;
+    const float h = 30.0f;
 
     auto& layout = IosUIBridge::GetContext().layout;
     float nx = std::clamp(gDragOrigPos.x + dx, 4.0f, std::max(4.0f, viewW - w - 4.0f));
@@ -1313,7 +1549,10 @@ void OnTouchEnded(float x, float y, float viewW, float viewH) {
                 be->RequestMemoryFeature(IosUIBridge::MemoryFeature::NoFallDamage, nxt, 1.0f);
                 PushToast(nxt ? "No Fall ON" : "No Fall OFF");
             }
+            SaveSettings();
         }
+    } else if (gDragMoved) {
+        SaveSettings();
     }
     gDraggedHudKind = -1;
     gDragMoved = false;

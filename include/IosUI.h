@@ -11,6 +11,8 @@ namespace IosUI {
 
 void SetHeaderTitleFont(ImFont* font);
 void PushToast(const char* text);
+void SaveSettings();
+void LoadSettings();
 
 void ApplyTheme();
 void RenderFrame();
