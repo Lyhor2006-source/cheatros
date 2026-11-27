@@ -2278,8 +2278,6 @@ def _pb_movement_world(me, c):
 
     ng_on = c[35] >= 0.5
 
-    para_on = c[36] >= 0.5
-
     cam_on = c[37] >= 0.5
 
     fog_on = c[38] >= 0.5
@@ -3287,27 +3285,6 @@ def _pb_movement_world(me, c):
             _PB_MW_STATE['ug_base_y'] = None
 
 
-
-    # 9. FAST PARACHUTE from unlimitedammo.dylib (Rapid downward descent during drop)
-    if para_on:
-        try:
-            import math3d
-            curr_p = getattr(me, 'position', None)
-            if curr_p is not None:
-                is_on_ground = False
-                for g_attr in ('isOnGround', 'onGround', 'is_on_ground'):
-                    gv = getattr(me, g_attr, None)
-                    if callable(gv):
-                        try: is_on_ground = bool(gv())
-                        except Exception: pass
-                    elif isinstance(gv, bool):
-                        is_on_ground = gv
-                    if is_on_ground:
-                        break
-                if not is_on_ground and getattr(curr_p, 'y', 0.0) > 3.0:
-                    me.position = math3d.vector(curr_p.x, curr_p.y - 2.8, curr_p.z)
-        except Exception:
-            pass
 
     nr_on = len(c) > 39 and c[39] >= 0.5
 

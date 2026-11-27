@@ -473,12 +473,6 @@ void ExecuteTask(const WorkerTask& task) {
         SetResultLocked(task.feature, true, true, false, "ACTIVE (Unlimited Ammo)");
         return;
     }
-    if (task.feature == MF::FastParachute) {
-        std::lock_guard<std::mutex> lock(gStateMutex);
-        SetResultLocked(task.feature, true, true, false, "ACTIVE (Fast Parachute)");
-        return;
-    }
-
     // Features requiring external server-leased scripts (not bundled)
     if (task.feature == MF::FastParachuteV2 ||
         task.feature == MF::GhostDesync ||
@@ -786,7 +780,6 @@ void ExecuteTask(const WorkerTask& task) {
          task.feature == MF::WallV1 ||
          task.feature == MF::NoFallDamage ||
          task.feature == MF::NoGrass ||
-         task.feature == MF::FastParachute ||
          task.feature == MF::IpadView ||
          task.feature == MF::ClearFog ||
          task.feature == MF::NoRecoil);
@@ -804,6 +797,8 @@ void ExecuteTask(const WorkerTask& task) {
     if (applied > 0) {
         if (detail.empty()) detail = "ACTIVE";
         SetResultLocked(task.feature, true, true, false, detail);
+    } else if (task.feature == MF::FastParachute && matched == 0) {
+        SetResultLocked(task.feature, true, false, false, "Waiting for parachute memory");
     } else if (hasPythonFallback) {
         SetResultLocked(task.feature, true, true, false, detail.empty() ? "ACTIVE (BigWorld)" : detail);
     } else if (matched > 0) {
@@ -1080,7 +1075,7 @@ void Tick() {
             }
         }
 
-        // Throttled background rescan for SpeedHack / FastParachute if enabled before match/jump allocations
+        // Throttled background rescan for features enabled before match/jump allocations.
         static auto sLastRescan = std::chrono::steady_clock::now();
         const auto now = std::chrono::steady_clock::now();
         if (now - sLastRescan >= std::chrono::milliseconds(2000)) {
@@ -1090,6 +1085,11 @@ void Tick() {
                 retries.push_back(WorkerTask{
                     IosUIBridge::MemoryFeature::SpeedHack, true,
                     gSpeedMultiplier.load(std::memory_order_relaxed), true});
+            }
+            const auto& fp = gFeatures[static_cast<size_t>(IosUIBridge::MemoryFeature::FastParachute)];
+            if (fp.enabled && !fp.pending && fp.patches.Count() == 0) {
+                retries.push_back(WorkerTask{
+                    IosUIBridge::MemoryFeature::FastParachute, true, 1.0f, true});
             }
         }
     }

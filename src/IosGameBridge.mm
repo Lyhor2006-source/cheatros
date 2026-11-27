@@ -64,7 +64,6 @@ public:
             MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::WallV2).enabled ||
             MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::NoFallDamage).enabled ||
             MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::NoGrass).enabled ||
-            MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::FastParachute).enabled ||
             MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::IpadView).enabled ||
             MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::ClearFog).enabled ||
             MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::NoRecoil).enabled ||
@@ -358,7 +357,6 @@ private:
         const float assistPct = std::clamp(aim.aimPower, 10.0f, 100.0f);
         const int speedOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::SpeedHack).enabled ? 1 : 0;
         const int noFallOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::NoFallDamage).enabled ? 1 : 0;
-        const int fastParaOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::FastParachute).enabled ? 1 : 0;
         const int camWideOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::IpadView).enabled ? 1 : 0;
         const int autoReloadOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::AutoReload).enabled ? 1 : 0;
         const int unlimitedAmmoOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::UnlimitedAmmo).enabled ? 1 : 0;
@@ -388,7 +386,7 @@ private:
             speedOn,                                                // c[29]
             lay.speedMultiplier,                                    // c[30]
             noFallOn,                                               // c[32]
-            fastParaOn,                                             // c[36]
+            0,                                                      // c[36] reserved; Fast Parachute uses native memory patch
             camWideOn,                                              // c[37]
             autoReloadOn,                                           // c[43]
             unlimitedAmmoOn);                                       // c[44]
