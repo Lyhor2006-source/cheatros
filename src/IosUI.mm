@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace IosUIBridge {
 UiContext& GetContext() {
@@ -1291,12 +1292,18 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
             {3, 13}, {13, 14}, {14, 15}
         };
 
+        struct EspLabel {
+            const IosUIBridge::OverlayEntity* entity;
+            ImU32 accent;
+        };
+        std::vector<EspLabel> labels;
+
         const auto& ents = ctx.backend->GetEntities();
         for (const auto& e : ents) {
             if (e.distanceMeters > esp.espRangeMeters) continue;
             if (esp.hideBots && e.isBot) continue;
 
-            ImU32 col = e.isBot ? IM_COL32(34, 197, 94, 255) : IM_COL32(235, 45, 45, 255);
+            ImU32 col = e.isBot ? IM_COL32(75, 200, 174, 190) : IM_COL32(242, 112, 122, 195);
             if (!e.onScreen) {
                 if (esp.edgeArrows) {
                     RenderEdgeArrow(draw, displaySize, e.offscreenAngleRad, e.isBot, e.distanceMeters);
@@ -1304,17 +1311,18 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
                 continue;
             }
 
-            // Snaplines - Radiating from top center compass (matches unlimitedammo.dylib screenshot)
+            // Keep snaplines quiet so dense groups do not dominate the screen.
             if (esp.snaplines) {
                 ImVec2 origin(displaySize.x * 0.5f, 26.0f);
                 if (esp.snaplineOrigin == 0) origin = ImVec2(displaySize.x * 0.5f, 0.0f);
                 else if (esp.snaplineOrigin == 1) origin = ImVec2(displaySize.x * 0.5f, displaySize.y * 0.5f);
                 else if (esp.snaplineOrigin == 2) origin = ImVec2(displaySize.x * 0.5f, displaySize.y);
                 else if (esp.snaplineOrigin == 3) origin = ImVec2(displaySize.x * 0.5f, 26.0f);
-                draw->AddLine(origin, ImVec2((e.minX + e.maxX) * 0.5f, e.minY), col, 1.5f);
+                ImU32 lineCol = e.isBot ? IM_COL32(75, 200, 174, 65) : IM_COL32(242, 112, 122, 72);
+                draw->AddLine(origin, ImVec2((e.minX + e.maxX) * 0.5f, e.minY), lineCol, 0.8f);
             }
 
-            // 2D Bounding Box - Clean crisp red lines without black outlines
+            // Lightweight boxes leave the game scene visible.
             if (esp.boxes) {
                 if (esp.boxStyle == 1) { // Corner brackets
                     float w = e.maxX - e.minX;
@@ -1322,8 +1330,8 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
                     float cw = std::max(w * 0.25f, 4.0f);
                     float ch = std::max(h * 0.20f, 4.0f);
                     auto corner = [&](ImVec2 a, ImVec2 b, ImVec2 c) {
-                        draw->AddLine(a, b, col, 1.8f);
-                        draw->AddLine(a, c, col, 1.8f);
+                        draw->AddLine(a, b, col, 1.2f);
+                        draw->AddLine(a, c, col, 1.2f);
                     };
                     corner(ImVec2(e.minX, e.minY), ImVec2(e.minX + cw, e.minY), ImVec2(e.minX, e.minY + ch));
                     corner(ImVec2(e.maxX, e.minY), ImVec2(e.maxX - cw, e.minY), ImVec2(e.maxX, e.minY + ch));
@@ -1343,7 +1351,7 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
                     draw->AddLine(f0, f1, col, 1.5f); draw->AddLine(f1, f2, col, 1.5f);
                     draw->AddLine(f2, f3, col, 1.5f); draw->AddLine(f3, f0, col, 1.5f);
                 } else { // Standard 2D Box
-                    draw->AddRect(ImVec2(e.minX, e.minY), ImVec2(e.maxX, e.maxY), col, 0.0f, 0, 1.5f);
+                    draw->AddRect(ImVec2(e.minX, e.minY), ImVec2(e.maxX, e.maxY), col, 0.0f, 0, 1.0f);
                 }
             }
 
@@ -1354,12 +1362,12 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
                         draw->AddLine(
                             ImVec2(e.bonePos[pair[0]][0], e.bonePos[pair[0]][1]),
                             ImVec2(e.bonePos[pair[1]][0], e.bonePos[pair[1]][1]),
-                            IM_COL32(255, 255, 255, 255), 1.5f);
+                            IM_COL32(226, 236, 242, 170), 1.1f);
                     }
                 }
                 if (e.boneValid[0]) {
                     float hr = std::clamp((e.maxY - e.minY) * 0.08f, 3.0f, 9.0f);
-                    draw->AddCircle(ImVec2(e.bonePos[0][0], e.bonePos[0][1]), hr, IM_COL32(255, 255, 255, 255), 16, 1.5f);
+                    draw->AddCircle(ImVec2(e.bonePos[0][0], e.bonePos[0][1]), hr, IM_COL32(226, 236, 242, 170), 16, 1.1f);
                 }
             }
 
@@ -1374,31 +1382,54 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
                 draw->AddRectFilled(ImVec2(hbMin.x, e.maxY - h * frac), hbMax, hCol);
             }
 
-            ImFont* font = ImGui::GetFont();
+            if ((esp.name && !e.name.empty()) || esp.distance) labels.push_back({&e, col});
+        }
 
-            // Name Badge (above box) - Solid red filled rounded pill with pure white text
-            if (esp.name && !e.name.empty()) {
-                const char* nText = e.name.c_str();
-                ImVec2 sz = font->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, nText);
-                float badgeW = sz.x + 8.0f;
-                float badgeH = sz.y + 4.0f;
-                ImVec2 bMin((e.minX + e.maxX - badgeW) * 0.5f, e.minY - badgeH - 2.0f);
-                ImVec2 bMax(bMin.x + badgeW, bMin.y + badgeH);
-                draw->AddRectFilled(bMin, bMax, col, 3.0f);
-                draw->AddText(font, 11.0f, ImVec2(bMin.x + 4.0f, bMin.y + 2.0f), IM_COL32(255, 255, 255, 255), nText);
+        // Place closer players first; move crowded labels upward or omit them.
+        std::sort(labels.begin(), labels.end(), [](const EspLabel& a, const EspLabel& b) {
+            return a.entity->distanceMeters < b.entity->distanceMeters;
+        });
+        std::vector<ImVec4> occupied;
+        ImFont* font = ImGui::GetFont();
+        for (const EspLabel& item : labels) {
+            const auto& e = *item.entity;
+            const float nameSize = 9.5f;
+            const float distanceSize = 9.0f;
+            char distanceText[24] = {};
+            if (esp.distance) std::snprintf(distanceText, sizeof(distanceText), "%.0fm", e.distanceMeters);
+            const bool showName = esp.name && !e.name.empty();
+            const float nameWidth = showName ? std::min(font->CalcTextSizeA(nameSize, FLT_MAX, 0.0f, e.name.c_str()).x, 112.0f) : 0.0f;
+            const float distanceWidth = esp.distance ? font->CalcTextSizeA(distanceSize, FLT_MAX, 0.0f, distanceText).x : 0.0f;
+            const float width = 12.0f + nameWidth + (showName && esp.distance ? 8.0f : 0.0f) + distanceWidth + (esp.distance ? 5.0f : 0.0f);
+            const float height = 16.0f;
+            const float x = std::clamp((e.minX + e.maxX - width) * 0.5f, 3.0f, std::max(3.0f, displaySize.x - width - 3.0f));
+            float y = e.minY - height - 3.0f;
+            bool placed = false;
+            for (int row = 0; row < 4 && y >= 3.0f; ++row, y -= height + 3.0f) {
+                bool overlaps = false;
+                for (const ImVec4& used : occupied) {
+                    if (x < used.z + 3.0f && x + width + 3.0f > used.x && y < used.w + 3.0f && y + height + 3.0f > used.y) {
+                        overlaps = true;
+                        break;
+                    }
+                }
+                if (!overlaps) { placed = true; break; }
             }
-
-            // Distance Badge (below box) - Solid red filled rounded pill with pure white text
+            if (!placed) continue;
+            occupied.emplace_back(x, y, x + width, y + height);
+            const ImVec2 min(x, y), max(x + width, y + height);
+            draw->AddRectFilled(min, max, IM_COL32(15, 23, 34, 205), 5.0f);
+            draw->AddRect(min, max, IM_COL32(176, 198, 210, 65), 5.0f, 0, 0.8f);
+            draw->AddRectFilled(ImVec2(x + 3.0f, y + 3.0f), ImVec2(x + 5.0f, y + height - 3.0f), item.accent, 1.0f);
+            float textX = x + 9.0f;
+            if (showName) {
+                draw->PushClipRect(ImVec2(textX, y), ImVec2(textX + nameWidth, y + height), true);
+                draw->AddText(font, nameSize, ImVec2(textX, y + 2.0f), IM_COL32(242, 246, 249, 245), e.name.c_str());
+                draw->PopClipRect();
+                textX += nameWidth + 8.0f;
+            }
             if (esp.distance) {
-                char dBuf[32];
-                std::snprintf(dBuf, sizeof(dBuf), "%.0fm", e.distanceMeters);
-                ImVec2 dSz = font->CalcTextSizeA(10.5f, FLT_MAX, 0.0f, dBuf);
-                float dBadgeW = dSz.x + 6.0f;
-                float dBadgeH = dSz.y + 3.0f;
-                ImVec2 dMin((e.minX + e.maxX - dBadgeW) * 0.5f, e.maxY + 2.0f);
-                ImVec2 dMax(dMin.x + dBadgeW, dMin.y + dBadgeH);
-                draw->AddRectFilled(dMin, dMax, col, 3.0f);
-                draw->AddText(font, 10.5f, ImVec2(dMin.x + 3.0f, dMin.y + 1.5f), IM_COL32(255, 255, 255, 255), dBuf);
+                draw->AddText(font, distanceSize, ImVec2(textX, y + 2.5f), IM_COL32(166, 188, 203, 240), distanceText);
             }
         }
     }
