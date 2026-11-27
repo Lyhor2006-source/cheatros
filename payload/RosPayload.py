@@ -4019,21 +4019,32 @@ def _pb_disassemble_method(method):
     try:
         import dis
         import sys
+        import binascii
         try:
             from io import StringIO
         except ImportError:
             from StringIO import StringIO
+        func = getattr(method, '__func__', None) or getattr(method, 'im_func', None) or method
+        code = getattr(func, '__code__', None) or getattr(func, 'func_code', None)
+        if code is None:
+            return 'code unavailable: %s' % type(func).__name__
         output = StringIO()
         old_stdout = sys.stdout
         try:
             sys.stdout = output
-            func = getattr(method, '__func__', None) or getattr(method, 'im_func', None) or method
-            dis.dis(func)
+            dis.disassemble(code)
         finally:
             sys.stdout = old_stdout
         return output.getvalue()[:24000]
     except Exception as exc:
-        return 'disassembly unavailable: %s' % type(exc).__name__
+        try:
+            raw = binascii.hexlify(code.co_code)
+            if not isinstance(raw, str): raw = raw.decode('ascii')
+            return ('disassembly unavailable: %s %s\npython=%s\ncode=%s\nconsts=%r' %
+                    (type(exc).__name__, str(exc)[:150], sys.version.split()[0],
+                     raw[:16000], code.co_consts[:30]))
+        except Exception:
+            return 'disassembly unavailable: %s' % type(exc).__name__
 
 
 def _pb_clone_bag_diag(me, probe):
@@ -4094,6 +4105,17 @@ def _pb_clone_bag_diag(me, probe):
                         except Exception as exc:
                             lines.append('  %s getGunBulletData error=%s' %
                                          (label, type(exc).__name__))
+                if selected is not None:
+                    for key in dir(selected):
+                        if key.startswith('__') or not any(word in key.lower() for word in
+                            ('rail', 'mag', 'bullet', 'ammo', 'legacy', 'data', 'item')):
+                            continue
+                        try:
+                            value = getattr(selected, key)
+                            lines.append('  gun.%s=%s' %
+                                         (key, '<callable>' if callable(value) else repr(value)[:100]))
+                        except Exception:
+                            pass
             except Exception as exc:
                 lines.append('  selected item inspect=%s' % type(exc).__name__)
             lines.append('BYTECODE addBulletToGunItem')
