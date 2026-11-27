@@ -432,7 +432,7 @@ def _pb_aim_screen(pt, W, H, metrics):
 
     return x, y
 
-def _pb_aim(me, cands, allc=None):
+def _pb_aim(me, cands, allc=None, tm_cands=None):
 
     import math
 
@@ -440,7 +440,36 @@ def _pb_aim(me, cands, allc=None):
 
     c = _pb_aimcfg()
 
-    if not c or len(c) < 11 or c[0] < 0.5:
+    if not c or len(c) < 11:
+
+        return
+
+    healer_aim_on = bool(len(c) > 45 and c[45] >= 0.5)
+
+    # Check if player is holding Healer Gun (Adrenaline/Hormone Gun, ID 90050)
+    is_healer = False
+    try:
+        cur_rail = getattr(me, 'dtsCurRailID', None)
+        if cur_rail == 90050:
+            is_healer = True
+        else:
+            cur_w = getattr(me, 'dtsCurWeapon', None)
+            if cur_w is not None:
+                w_obj = getattr(me, 'dtsWeapon%d' % cur_w, None)
+                if w_obj is not None:
+                    wid = getattr(w_obj, 'weaponID', None) or getattr(w_obj, 'weaponId', None) or getattr(w_obj, 'itemID', None)
+                    if wid in (90050, 90205, 90265):
+                        is_healer = True
+                    else:
+                        wn = str(getattr(w_obj, 'name', '') or getattr(w_obj, 'weaponName', '')).lower()
+                        if 'healer' in wn or 'shenshang' in wn:
+                            is_healer = True
+    except Exception:
+        pass
+
+    use_healer_aim = is_healer and healer_aim_on
+
+    if not use_healer_aim and c[0] < 0.5:
 
         return
 
@@ -458,21 +487,20 @@ def _pb_aim(me, cands, allc=None):
 
     firing = _pb_flag((me, cc), ('isShooting', 'fireBtnPressed', 'isFiring', 'isAttacking', '_isFiring'))
 
-    m = int(mode)
+    if not use_healer_aim:
+        m = int(mode)
 
-    if m == 1 and not scoped:
+        if m == 1 and not scoped:
 
-        return
+            return
 
-    if m == 2 and (not firing or scoped):
+        if m == 2 and (not firing or scoped):
 
-        return
+            return
 
-    if m >= 3 and not (scoped and firing):
+        if m >= 3 and not (scoped and firing):
 
-        return
-
-
+            return
 
     cx = W * 0.5; cy = H * 0.5
 
@@ -488,37 +516,50 @@ def _pb_aim(me, cands, allc=None):
 
         cam = me.position
 
+    if use_healer_aim and tm_cands:
+        # Healer Aim: prioritize knocked (downed) teammates to revive them!
+        best_rank = None
+        for t in tm_cands:
+            te, tfs, ths, tkn, tvis, tp, tdist, thp, tmhp = t
+            tfx, tfy = _pb_aim_screen(tfs, W, H, metrics)
+            thx, thy = _pb_aim_screen(ths, W, H, metrics)
+            tax = thx; tay = thy + 0.15 * (tfy - thy)
+            td_screen = ((tax - cx) ** 2 + (tay - cy) ** 2) ** 0.5
+            # Rank 0: knocked (revive!), Rank 1: injured (heal!), Rank 2: full hp (boost speed!)
+            rank = (0 if tkn else (1 if thp < tmhp else 2), td_screen)
+            if best is None or rank < best_rank:
+                best_rank = rank
+                best = (te, tp)
+    else:
+        for (e, fs, hs, kn, vis, p, dist) in cands:
 
+            if _pb_enemy(me, e) != 1:
 
-    for (e, fs, hs, kn, vis, p, dist) in cands:
+                continue
 
-        if _pb_enemy(me, e) != 1:
+            if ignkn >= 0.5 and kn:
 
-            continue
+                continue
 
-        if ignkn >= 0.5 and kn:
+            if vischk >= 0.5 and not vis:
 
-            continue
+                continue
 
-        if vischk >= 0.5 and not vis:
+            if dist / 10.0 > maxd:
 
-            continue
+                continue
 
-        if dist / 10.0 > maxd:
+            fx, fy = _pb_aim_screen(fs, W, H, metrics)
 
-            continue
+            hx, hy = _pb_aim_screen(hs, W, H, metrics)
 
-        fx, fy = _pb_aim_screen(fs, W, H, metrics)
+            ax = hx; ay = hy + fr * (fy - hy)
 
-        hx, hy = _pb_aim_screen(hs, W, H, metrics)
+            d = ((ax - cx) ** 2 + (ay - cy) ** 2) ** 0.5
 
-        ax = hx; ay = hy + fr * (fy - hy)
+            if d < bd:
 
-        d = ((ax - cx) ** 2 + (ay - cy) ** 2) ** 0.5
-
-        if d < bd:
-
-            bd = d; best = (e, p)
+                bd = d; best = (e, p)
 
     if best is None:
 
@@ -604,15 +645,18 @@ def _pb_aim(me, cands, allc=None):
 
 
 
-    raw_p = float(power) if power is not None else 100.0
-
-    if raw_p > 1.0:
-
-        assist_ratio = max(10.0, min(100.0, raw_p)) / 100.0
-
+    if use_healer_aim:
+        assist_ratio = 1.0
     else:
+        raw_p = float(power) if power is not None else 100.0
 
-        assist_ratio = max(0.10, min(1.0, raw_p))
+        if raw_p > 1.0:
+
+            assist_ratio = max(10.0, min(100.0, raw_p)) / 100.0
+
+        else:
+
+            assist_ratio = max(0.10, min(1.0, raw_p))
 
     factor_x = abs(float(getattr(cc, '_rotate_factor_x', 0.2) or 0.2))
 
@@ -4016,10 +4060,13 @@ def _pb_auto_reload(me, c):
         except Exception:
             pass
 
-    # Option A: Real Gun Reload (Infinite Reserve)
+    st = _PB_AR_STATE['state']
+
+    # Option A: Real Gun Reload (Infinite Reserve + Seamless Refill)
     # Replenishes reserve ammunition so the player never runs out of ammo.
     # Magazine rounds decrease normally per shot, allowing each gun's authentic
     # reload animation and timing (e.g. M4A1 1.8s, AKM 2.2s) to play cleanly without interruption.
+    # Once the native reload animation finishes, replenishes the magazine to eff_cap so it never loops at 0!
     if unlim_on and cur_mag is not None:
         cap = getattr(cur_mag, 'magazine_capacity', None)
         if not (isinstance(cap, (int, float)) and 1 <= int(cap) <= 400):
@@ -4032,6 +4079,25 @@ def _pb_auto_reload(me, c):
                 cur_mag.ammo_box_bullet_count = eff_cap * 5
             except Exception:
                 pass
+
+        # If gun was reloading, check if reload animation completed
+        if st in ('reloading', 'retry'):
+            elapsed = now - _PB_AR_STATE.get('reload_start', 0.0)
+            reloading_now = _pb_ar_is_reloading(me, objs)
+            if (not reloading_now and elapsed >= 1.0) or elapsed >= 2.5:
+                try:
+                    cur_mag.bullet_count = eff_cap
+                    if targets:
+                        for tgt in targets:
+                            t_obj, t_attr, t_idx = tgt
+                            if t_idx is not None and t_idx < len(t_obj):
+                                t_obj[t_idx] = eff_cap
+                            elif t_attr:
+                                setattr(t_obj, t_attr, eff_cap)
+                    cur_ammo = eff_cap
+                    _PB_AR_STATE['state'] = 'idle'
+                except Exception:
+                    pass
 
     if cur_ammo is None:
         return
@@ -4062,7 +4128,7 @@ def _pb_auto_reload(me, c):
 
 
 
-def _pb_actions(me, cands, allc):
+def _pb_actions(me, cands, allc, tm_cands=None):
 
     import time
 
@@ -4108,7 +4174,7 @@ def _pb_actions(me, cands, allc):
 
     try:
 
-        _pb_aim(me, cands, allc)
+        _pb_aim(me, cands, allc, tm_cands)
 
     except Exception:
 
@@ -4193,6 +4259,8 @@ def _pb_esp(g):
         cands = []
 
         allc = []
+
+        tm_cands = []
 
         nb = 0
 
@@ -4289,10 +4357,12 @@ def _pb_esp(g):
                 enemy = _pb_enemy(me, e)
 
                 if enemy == 0:
-
-                    _PB_BMAP.pop(eid, None)
-
-                    continue
+                    try:
+                        if me is not None and e is not None and getattr(me, 'id', None) == getattr(e, 'id', None):
+                            _PB_BMAP.pop(eid, None)
+                            continue
+                    except Exception:
+                        pass
 
                 vis = _pb_vis(me, e, cam)
 
@@ -4502,6 +4572,10 @@ def _pb_esp(g):
 
                     allc.append((e, kn, vis, p, dist))
 
+                if on and enemy == 0:
+
+                    tm_cands.append((e, fs, hs, kn, vis, p, dist, hp, mhp))
+
                 rows += 1
 
             except Exception:
@@ -4514,7 +4588,7 @@ def _pb_esp(g):
 
                 _PB_BMAP.pop(cached_id, None)
 
-        _pb_actions(me, cands, allc)
+        _pb_actions(me, cands, allc, tm_cands)
 
         bs = _PB_BS['s'] if _PB_BS['s'] is not None else -2
 

@@ -473,6 +473,11 @@ void ExecuteTask(const WorkerTask& task) {
         SetResultLocked(task.feature, true, true, false, "ACTIVE (Unlimited Ammo)");
         return;
     }
+    if (task.feature == MF::HealerAim) {
+        std::lock_guard<std::mutex> lock(gStateMutex);
+        SetResultLocked(task.feature, true, true, false, "ACTIVE (Healer Aim)");
+        return;
+    }
     // Features requiring external server-leased scripts (not bundled)
     if (task.feature == MF::FastParachuteV2 ||
         task.feature == MF::GhostDesync ||
@@ -1004,6 +1009,7 @@ const char* GetFeatureName(IosUIBridge::MemoryFeature feature) {
         case MF::AntiCheatShield: return "Anti-Cheat Shield";
         case MF::AutoReload:      return "Auto Reload";
         case MF::UnlimitedAmmo:   return "Unlimited Ammo";
+        case MF::HealerAim:       return "Healer Aim";
         default:                  return "Feature";
     }
 }

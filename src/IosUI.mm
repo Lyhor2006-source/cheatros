@@ -932,6 +932,24 @@ void RenderMemoryTab() {
         }
         EndCard();
 
+        ImGui::TableNextColumn();
+        BeginCard("##healer_aim", "HEALER ASSIST", 1, false);
+        static bool healerAim = false;
+        RenderFeatureToggle("Healer Aim", &healerAim, IosUIBridge::MemoryFeature::HealerAim);
+        if (IosUIBridge::GetContext().backend) {
+            auto st = IosUIBridge::GetContext().backend->GetMemoryFeatureStatus(
+                IosUIBridge::MemoryFeature::HealerAim);
+            if (st.enabled && !st.detail.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.90f, 0.72f, 0.75f));
+                ImGui::TextUnformatted(st.detail.c_str());
+                ImGui::PopStyleColor(1);
+            }
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.65f, 0.75f, 0.85f));
+        ImGui::TextWrapped("100%% Aim snap to Teammates (Revive/Boost) when holding Healer Gun (90050)");
+        ImGui::PopStyleColor(1);
+        EndCard();
+
         ImGui::EndTable();
     }
     ImGui::PopStyleVar(1);

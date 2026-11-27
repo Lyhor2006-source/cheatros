@@ -70,7 +70,8 @@ public:
             MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::SuperJump).enabled ||
             MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::ZeroGravity).enabled ||
             MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::AutoReload).enabled ||
-            MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::UnlimitedAmmo).enabled;
+            MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::UnlimitedAmmo).enabled ||
+            MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::HealerAim).enabled;
 
         if (!wantRuntime) {
             entities_.clear();
@@ -360,11 +361,12 @@ private:
         const int camWideOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::IpadView).enabled ? 1 : 0;
         const int autoReloadOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::AutoReload).enabled ? 1 : 0;
         const int unlimitedAmmoOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::UnlimitedAmmo).enabled ? 1 : 0;
+        const int healerAimOn = MemoryCheats::GetStatus(IosUIBridge::MemoryFeature::HealerAim).enabled ? 1 : 0;
 
         char buf[1024];
         std::snprintf(
             buf, sizeof(buf),
-            "%d %d %.2f %.2f %.2f %d %d %d %.2f %.2f %.2f 0 0 0 0 1 %.2f %.2f 0 0 %.2f %.2f 0 %.2f 1 %d %d %d %.2f %d %.2f 0 %d 0 0 0 %d %d 0 0 0.00 0 0 %d %d\n",
+            "%d %d %.2f %.2f %.2f %d %d %d %.2f %.2f %.2f 0 0 0 0 1 %.2f %.2f 0 0 %.2f %.2f 0 %.2f 1 %d %d %d %.2f %d %.2f 0 %d 0 0 0 %d %d 0 0 0.00 0 0 %d %d %d\n",
             aim.masterAim ? 1 : 0,                                  // c[0]
             aim.triggerMode,                                        // c[1]
             aim.fovRadiusPx,                                        // c[2]
@@ -389,7 +391,8 @@ private:
             0,                                                      // c[36] reserved; Fast Parachute uses native memory patch
             camWideOn,                                              // c[37]
             autoReloadOn,                                           // c[43]
-            unlimitedAmmoOn);                                       // c[44]
+            unlimitedAmmoOn,                                        // c[44]
+            healerAimOn);                                           // c[45]
 
         const std::string tmpPath = cfgPath_ + ".new";
         FILE* fp = std::fopen(tmpPath.c_str(), "wb");

@@ -88,7 +88,8 @@ enum class MemoryFeature : int {
     AntiCheatShield = 0x24,
     AutoReload      = 0x25,
     UnlimitedAmmo   = 0x26,
-    Count           = 0x27,
+    HealerAim       = 0x27,
+    Count           = 0x28,
 };
 
 struct FeatureStatus {
@@ -140,14 +141,14 @@ struct AimSettings {
 };
 
 struct UiLayoutState {
-    bool menuOpen = false;
+    bool menuOpen = true;
     bool menuVisible = true;
     int activeTab = 0;        // 0..5 (ESP, Aim, Memory, Teleport, Hand, Settings)
     float uiScale = 1.0f;     // [0.70 .. 1.20]
 
     bool crosshair = false;
     bool watermark = true;
-    bool hideRecording = true;
+    bool hideRecording = false;
     bool showFeatureIcons = false;
     bool showTeleportIcons = false;
     bool engineStarted = false;
