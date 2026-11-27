@@ -3432,7 +3432,8 @@ _PB_AR_STATE = {'state': 'idle', 'key': None, 'reload_start': 0.0, 'switch_until
 
                 'ws_reloading': False, 'ws_entered': False, 'ar_on': False, 'unlim_on': False,
 
-                'gate_open': False, 'triggering': False, 'valid_gun': False, 'diag_keys': set()}
+                'gate_open': False, 'triggering': False, 'valid_gun': False, 'diag_keys': set(),
+                'reserve_highwater': {}}
 
 _PB_AMMO_ATTRS = ('curBullet', 'curBullets', '_curBullet', '_cur_bullet', 'bulletCount', 'bulletNum',
 
@@ -3674,101 +3675,63 @@ def _pb_ar_probe(me):
 
 
 
-    rails = []
-
-    rail_ids = set()
-
-    wep_objs = []
-
-    for obj in list(objs):
-
-        if obj is me or obj is slot_wep:
-
+    # _pb_fire_objects can contain both equipped and holstered weapons. Never
+    # take its first rail or write every rail's ammo fields.
+    candidates = []
+    seen_rails = set()
+    for obj in [slot_wep] + list(objs):
+        if obj is None:
             continue
+        rail = getattr(obj, '_curRail', None) or getattr(obj, 'curRail', None)
+        if rail is None and (hasattr(obj, 'isMagazineEmpty') or hasattr(obj, 'isAmmoBoxEmpty')):
+            rail = obj
+        if rail is not None and id(rail) not in seen_rails:
+            seen_rails.add(id(rail))
+            candidates.append((obj, rail))
 
-        r = getattr(obj, '_curRail', None) or getattr(obj, 'curRail', None)
+    wm = getattr(me, 'weapon_mgr', None)
+    if wm is None:
+        try: wm = me.GetComponent('WeaponManager')
+        except Exception: pass
+    holders = [slot_wep]
+    if wm is not None:
+        holders.extend((getattr(wm, '_weapon', None), getattr(wm, 'curWeapon', None)))
+    holders.extend((getattr(me, 'curWeapon', None), getattr(me, 'activeWeapon', None)))
 
-        if r is not None:
-
-            if id(r) not in rail_ids:
-
-                rail_ids.add(id(r))
-
-                rails.append(r)
-
-            if obj not in wep_objs:
-
-                wep_objs.append(obj)
-
-        elif hasattr(obj, 'isMagazineEmpty') or hasattr(obj, 'isAmmoBoxEmpty') or hasattr(obj, 'getShootInterval'):
-
-            if id(obj) not in rail_ids:
-
-                rail_ids.add(id(obj))
-
-                rails.append(obj)
-
-        elif hasattr(obj, 'tryReload') or type(obj).__name__ in ('WeaponMachine', 'WeaponMgr', 'WeaponManager'):
-
-            if obj not in wep_objs:
-
-                wep_objs.append(obj)
-
-
-
-    cur_mag = None
-
-    for r in rails:
-
-        for mname in ('_magazine', 'magazine', 'curMagazine', '_curMagazine'):
-
-            m = getattr(r, mname, None)
-
-            if callable(m):
-
-                try: m = m()
-
-                except Exception: m = None
-
-            if m is not None:
-
-                cur_mag = m
-
-                break
-
-        if cur_mag is not None:
-
+    chosen = None
+    for holder in holders:
+        if holder is None or isinstance(holder, (int, float, str)):
+            continue
+        rail = getattr(holder, '_curRail', None) or getattr(holder, 'curRail', None)
+        if rail is not None:
+            chosen = (holder, rail)
             break
+    if chosen is None and len(candidates) == 1:
+        chosen = candidates[0]
+    if chosen is None and candidates:
+        rail_id = getattr(me, 'dtsCurRailID', None)
+        matching = [(owner, rail) for owner, rail in candidates
+                    if (gun_id > 0 and any(_pb_ar_read(x, n) == gun_id
+                        for x in (owner, rail) for n in ('weaponID', 'weaponId', 'itemID')))
+                    or (rail_id is not None and any(_pb_ar_read(x, n) == rail_id
+                        for x in (owner, rail) for n in ('railID', 'railId', 'weaponID')))]
+        if len(matching) == 1:
+            chosen = matching[0]
+    if chosen is None:
+        return None, None, None, None, None, 0, None
 
-
-
-    if cur_mag is None:
-
-        wm = getattr(me, 'weapon_mgr', None)
-
-        if wm is None:
-
-            try: wm = me.GetComponent('WeaponManager')
-
-            except Exception: pass
-
-        if wm is not None:
-
-            w = getattr(wm, '_weapon', None) or getattr(wm, 'curWeapon', None)
-
-            if w is not None:
-
-                r = getattr(w, '_curRail', None) or getattr(w, 'curRail', None)
-
-                if r is not None:
-
-                    cur_mag = getattr(r, '_magazine', None) or getattr(r, 'magazine', None)
-
-                    if callable(cur_mag):
-
-                        try: cur_mag = cur_mag()
-
-                        except Exception: cur_mag = None
+    owner, rail = chosen
+    rails = [rail]
+    rail_ids = {id(rail)}
+    wep_objs = [owner] if owner is not rail else []
+    cur_mag = None
+    for mname in ('_magazine', 'magazine', 'curMagazine', '_curMagazine'):
+        cur_mag = getattr(rail, mname, None)
+        if callable(cur_mag):
+            try: cur_mag = cur_mag()
+            except Exception: cur_mag = None
+        if cur_mag is not None:
+            break
 
 
 
@@ -4134,17 +4097,20 @@ def _pb_auto_reload(me, c):
         eff_cap = int(cap)
 
         reserve = getattr(cur_mag, 'ammo_box_bullet_count', None)
-        if reserve is None or (isinstance(reserve, (int, float)) and reserve < eff_cap * 2):
-            try:
-                cur_mag.ammo_box_bullet_count = eff_cap * 5
-            except Exception:
-                pass
+        reserve_key = (gun_id, getattr(me, 'dtsCurRailID', None))
+        floors = _PB_AR_STATE.setdefault('reserve_highwater', {})
+        if isinstance(reserve, (int, float)) and not isinstance(reserve, bool) and reserve >= 0:
+            floor = max(floors.get(reserve_key, 0), int(reserve), eff_cap * 5)
+            floors[reserve_key] = floor
+            if reserve < floor:
+                try: cur_mag.ammo_box_bullet_count = floor
+                except Exception: pass
 
         # If gun was reloading, check if reload animation completed
         if st in ('reloading', 'retry'):
             elapsed = now - _PB_AR_STATE.get('reload_start', 0.0)
             reloading_now = _pb_ar_is_reloading(me, objs)
-            if (not reloading_now and (elapsed >= 1.0 or cur_ammo > 0)) or elapsed >= 2.5:
+            if not reloading_now and (cur_ammo > 0 or elapsed >= 3.5):
                 refill_count = cur_ammo if cur_ammo > 0 else eff_cap
                 # A weapon may expose read-only mirrors. One failed mirror must
                 # not prevent later mirrors (including the HUD) from updating.

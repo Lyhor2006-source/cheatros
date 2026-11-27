@@ -55,6 +55,11 @@ tick(object(), config)
 assert magazine.bullet_count == 5 and magazine.ammo_box_bullet_count == 150
 assert calls == []
 
+# Reserve spent by a native reload returns to the observed high-water value.
+magazine.ammo_box_bullet_count = 120
+tick(object(), config)
+assert magazine.ammo_box_bullet_count == 150
+
 # Firing weapon decreases magazine rounds naturally
 magazine.decBulletFromMagazine(5)
 assert magazine.bullet_count == 0
@@ -69,6 +74,10 @@ is_reloading_flag[0] = True
 tick(object(), config)
 # MUST NOT trigger reload again (no reload spam or cancellation of animation!)
 assert calls == ["reload"]
+state["reload_start"] = time.time() - 4.0
+tick(object(), config)
+assert magazine.bullet_count == 0 and state["state"] == "reloading"
+state["reload_start"] = time.time()
 
 # Even if is_reloading_flag ends early, retry timeout protects animation for 3.5s
 is_reloading_flag[0] = False
@@ -100,7 +109,7 @@ env["_pb_ar_probe"] = lambda _me: ((0, 42, 1), magazine.bullet_count, 30,
 magazine.bullet_count = 0
 hud_magazines[0] = 0
 state["state"] = "reloading"
-state["reload_start"] = time.time() - 3.0
+state["reload_start"] = time.time() - 4.0
 tick(object(), config)
 assert magazine.bullet_count == 30 and hud_magazines[0] == 30
 assert state["state"] == "idle"
