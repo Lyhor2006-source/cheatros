@@ -3,12 +3,14 @@
 import ast
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 
 source = (Path(__file__).resolve().parents[1] / "payload" / "RosPayload.py").read_text(encoding="utf-8")
 tree = ast.parse(source)
-function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_pb_auto_reload")
-code = compile(ast.Module(body=[function], type_ignores=[]), "RosPayload.py", "exec")
+functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and
+             node.name in ("_pb_auto_reload", "_pb_ar_add_bag_reserve")]
+code = compile(ast.Module(body=functions, type_ignores=[]), "RosPayload.py", "exec")
 
 
 class Magazine:
@@ -23,6 +25,19 @@ class Magazine:
 
 
 magazine = Magazine()
+class Bag:
+    def __init__(self):
+        self.calls = []
+        self._idx2weapon_map = {0: SimpleNamespace(
+            _dtsItemID=42, _curRail=SimpleNamespace(
+                railData=SimpleNamespace(BULLET_ID=77)))}
+
+    def addBulletToGunItem(self, gun_id, bullet_id, amount):
+        self.calls.append((gun_id, bullet_id, amount))
+        magazine.ammo_box_bullet_count += amount
+
+bag = Bag()
+player = SimpleNamespace(weapon_bag=bag, dtsCurWeapon=0, dtsCurRailID=1)
 state = {"ar_on": False, "unlim_on": False, "valid_gun": False, "state": "idle",
          "key": None, "switch_until": 0.0, "reload_start": 0.0}
 calls = []
@@ -36,6 +51,8 @@ def probe(_me):
 env = {
     "_PB_AR_STATE": state,
     "_pb_ar_probe": probe,
+    "_pb_ar_active_slot": lambda me: me.dtsCurWeapon,
+    "_pb_ar_read": lambda obj, name: getattr(obj, name, None),
     "_pb_ar_install_ws_hooks": lambda: None,
     "_pb_restore_mag_hook": lambda: None,
     "_pb_ar_is_reloading": lambda _me, _objs: is_reloading_flag[0],
@@ -47,17 +64,21 @@ config = [0] * 45
 config[44] = 1
 
 # Initial weapon selection tick
-tick(object(), config)
+tick(player, config)
 state["switch_until"] = 0.0
 
 # Active tick: reserve is topped off to 150, but magazine bullet_count remains 5 (natural depletion)
-tick(object(), config)
+tick(player, config)
 assert magazine.bullet_count == 5 and magazine.ammo_box_bullet_count == 150
+assert bag.calls == [(42, 77, 150)]
 assert calls == []
+wrong, detail = env['_pb_ar_add_bag_reserve'](player, 0, 99, 10)
+assert not wrong and detail == 'bag gun mismatch' and bag.calls == [(42, 77, 150)]
 
 # Reserve spent by a native reload returns to the observed high-water value.
 magazine.ammo_box_bullet_count = 120
-tick(object(), config)
+state['bag_attempts'][(42, 1)] = 0.0
+tick(player, config)
 assert magazine.ammo_box_bullet_count == 150
 
 # Firing weapon decreases magazine rounds naturally
@@ -65,29 +86,29 @@ magazine.decBulletFromMagazine(5)
 assert magazine.bullet_count == 0
 
 # When empty, trigger reload once
-tick(object(), config)
+tick(player, config)
 assert calls == ["reload"]
 assert state["state"] == "reloading"
 
 # Native reload animation is now playing in-game (is_reloading_flag is True)
 is_reloading_flag[0] = True
-tick(object(), config)
+tick(player, config)
 # MUST NOT trigger reload again (no reload spam or cancellation of animation!)
 assert calls == ["reload"]
 state["reload_start"] = time.time() - 4.0
-tick(object(), config)
+tick(player, config)
 assert magazine.bullet_count == 0 and state["state"] == "reloading"
 state["reload_start"] = time.time()
 
 # Even if is_reloading_flag ends early, retry timeout protects animation for 3.5s
 is_reloading_flag[0] = False
-tick(object(), config)
+tick(player, config)
 assert calls == ["reload"]
 
 # Real game completes reload (fills 30 rounds into magazine from reserve)
 magazine.bullet_count = 30
 is_reloading_flag[0] = False
-tick(object(), config)
+tick(player, config)
 assert state["state"] == "idle"
 assert magazine.ammo_box_bullet_count == 150
 assert calls == ["reload"]
@@ -110,7 +131,7 @@ magazine.bullet_count = 0
 hud_magazines[0] = 0
 state["state"] = "reloading"
 state["reload_start"] = time.time() - 4.0
-tick(object(), config)
+tick(player, config)
 assert magazine.bullet_count == 30 and hud_magazines[0] == 30
 assert state["state"] == "idle"
 print("reload mirror smoke: read-only mirror does not block HUD magazine refill")
@@ -121,10 +142,10 @@ hud_magazines[0] = 0
 state["state"] = "reloading"
 state["reload_start"] = time.time()
 is_reloading_flag[0] = True
-tick(object(), config)
+tick(player, config)
 assert state["state"] == "reloading" and hud_magazines[0] == 0
 is_reloading_flag[0] = False
-tick(object(), config)
+tick(player, config)
 assert state["state"] == "idle" and magazine.bullet_count == 7 and hud_magazines[0] == 7
 print("reload timing smoke: early magazine fill synchronizes HUD after reload exit")
 
@@ -144,7 +165,7 @@ state["state"] = "reloading"
 state["reload_start"] = time.time() - 4.0
 is_reloading_flag[0] = False
 before_calls = len(calls)
-tick(object(), config)
-tick(object(), config)
+tick(player, config)
+tick(player, config)
 assert state["state"] == "failed" and len(calls) == before_calls
 print("reload retry smoke: failed refill does not request a second reload")

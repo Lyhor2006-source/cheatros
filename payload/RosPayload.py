@@ -4024,6 +4024,9 @@ def _pb_clone_bag_diag(me, probe):
         getattr(magazine, 'bullet_count', None),
         getattr(magazine, 'ammo_box_bullet_count', None),
         getattr(magazine, 'magazine_capacity', None)))
+    lines.append('unlimited bag=%s verified=%r' %
+                 (_PB_AR_STATE.get('bag_detail', 'not attempted'),
+                  _PB_AR_STATE.get('bag_verified', False)))
     objects = []
     for name in ('weapon_bag', 'weaponBag', 'dtsPackage', 'inventory', 'bag', 'itemBag', 'backpack'):
         try:
@@ -4124,6 +4127,43 @@ def _pb_clone_equipped_ammo():
     return result
 
 
+def _pb_ar_add_bag_reserve(me, slot, gun_id, amount):
+    """Use the v146 WeaponBag path only when the selected gun and ammo ID agree."""
+    try:
+        bag = getattr(me, 'weapon_bag', None)
+        mapping = getattr(bag, '_idx2weapon_map', None)
+        gun = None
+        if mapping is not None:
+            try: gun = mapping.get(slot)
+            except Exception:
+                try: gun = mapping[slot]
+                except Exception: pass
+        if gun is None or _pb_ar_read(gun, '_dtsItemID') != gun_id:
+            return False, 'bag gun mismatch'
+        ids = set()
+        rail = getattr(gun, '_curRail', None)
+        for owner in (gun, rail, getattr(gun, 'legacyProperties', None),
+                      getattr(rail, 'legacyProperties', None)):
+            if owner is None:
+                continue
+            for data in (owner, getattr(owner, 'railData', None)):
+                if data is None:
+                    continue
+                bullet_id = _pb_ar_read(data, 'BULLET_ID')
+                if bullet_id is not None and bullet_id > 0:
+                    ids.add(bullet_id)
+        if len(ids) != 1:
+            return False, 'bullet ID unresolved: %r' % sorted(ids)
+        add = getattr(bag, 'addBulletToGunItem', None)
+        if not callable(add) or amount <= 0:
+            return False, 'bag add unavailable'
+        add(gun_id, next(iter(ids)), int(amount))
+        return True, ('bag add requested gun=%d bullet=%d count=%d' %
+                      (gun_id, next(iter(ids)), amount))
+    except Exception as exc:
+        return False, 'bag add error: %s' % type(exc).__name__
+
+
 def _pb_auto_reload(me, c):
 
     import time
@@ -4132,6 +4172,9 @@ def _pb_auto_reload(me, c):
 
     unlim_on = bool(c and len(c) > 44 and c[44] >= 0.5)
 
+    if _PB_AR_STATE.get('unlim_on') and not unlim_on:
+        for key in ('bag_seeded', 'bag_pending', 'bag_failed', 'bag_attempts'):
+            _PB_AR_STATE.pop(key, None)
     _PB_AR_STATE['ar_on'] = ar_on
 
     _PB_AR_STATE['unlim_on'] = unlim_on
@@ -4141,6 +4184,11 @@ def _pb_auto_reload(me, c):
         _PB_AR_STATE['valid_gun'] = False
 
         _PB_AR_STATE['state'] = 'idle'
+
+        _PB_AR_STATE.pop('bag_seeded', None)
+        _PB_AR_STATE.pop('bag_pending', None)
+        _PB_AR_STATE.pop('bag_failed', None)
+        _PB_AR_STATE.pop('bag_attempts', None)
 
         return
 
@@ -4211,9 +4259,31 @@ def _pb_auto_reload(me, c):
         if isinstance(reserve, (int, float)) and not isinstance(reserve, bool) and reserve >= 0:
             floor = max(floors.get(reserve_key, 0), int(reserve), eff_cap * 5)
             floors[reserve_key] = floor
-            if reserve < floor:
-                try: cur_mag.ammo_box_bullet_count = floor
-                except Exception: pass
+            seeded = _PB_AR_STATE.setdefault('bag_seeded', set())
+            pending = _PB_AR_STATE.setdefault('bag_pending', {})
+            failed = _PB_AR_STATE.setdefault('bag_failed', set())
+            prior = pending.get(reserve_key)
+            if prior is not None:
+                before, started = prior
+                if reserve > before:
+                    _PB_AR_STATE['bag_verified'] = True
+                    del pending[reserve_key]
+                elif now - started > 3.5:
+                    _PB_AR_STATE['bag_detail'] = 'bag call made; reserve unchanged'
+                    failed.add(reserve_key)
+                    del pending[reserve_key]
+            if reserve_key not in failed and (reserve_key not in seeded or
+                    (reserve < floor and reserve_key not in pending)):
+                slot = _pb_ar_active_slot(me)
+                last_attempt = _PB_AR_STATE.setdefault('bag_attempts', {}).get(reserve_key, 0.0)
+                if now - last_attempt >= 3.5 and reserve_key not in pending:
+                    _PB_AR_STATE['bag_attempts'][reserve_key] = now
+                    amount = floor if reserve_key not in seeded else floor - int(reserve)
+                    ok, detail = _pb_ar_add_bag_reserve(me, slot, gun_id, amount)
+                    _PB_AR_STATE['bag_detail'] = detail
+                    if ok:
+                        seeded.add(reserve_key)
+                        pending[reserve_key] = (reserve, now)
 
         # If gun was reloading, check if reload animation completed
         if st in ('reloading', 'retry'):
