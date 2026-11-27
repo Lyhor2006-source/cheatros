@@ -25,6 +25,7 @@ magazine = Magazine()
 state = {"ar_on": False, "unlim_on": False, "valid_gun": False, "state": "idle",
          "key": None, "switch_until": 0.0, "reload_start": 0.0}
 calls = []
+is_reloading_flag = [False]
 
 
 def probe(_me):
@@ -36,7 +37,7 @@ env = {
     "_pb_ar_probe": probe,
     "_pb_ar_install_ws_hooks": lambda: None,
     "_pb_restore_mag_hook": lambda: None,
-    "_pb_ar_is_reloading": lambda _me, _objs: False,
+    "_pb_ar_is_reloading": lambda _me, _objs: is_reloading_flag[0],
     "_pb_ar_trigger_reload": lambda _me, _objs: calls.append("reload") or True,
 }
 exec(code, env)
@@ -47,28 +48,38 @@ config[44] = 1
 # Initial weapon selection tick
 tick(object(), config)
 state["switch_until"] = 0.0
-# Active tick: magazine tops off to capacity, reserve to capacity*5, dec hooked
+
+# Active tick: reserve is topped off to 150, but magazine bullet_count remains 5 (natural depletion)
 tick(object(), config)
-assert magazine.bullet_count == 30 and magazine.ammo_box_bullet_count == 150
+assert magazine.bullet_count == 5 and magazine.ammo_box_bullet_count == 150
 assert calls == []
 
-# Firing weapon: decBulletFromMagazine returns 0, bullet_count stays 30
-ret = magazine.decBulletFromMagazine(1)
-assert ret == 0 and magazine.bullet_count == 30
-assert calls == []
+# Firing weapon decreases magazine rounds naturally
+magazine.decBulletFromMagazine(5)
+assert magazine.bullet_count == 0
 
-# No reload requested when unlimited ammo is active
+# When empty, trigger reload once
 tick(object(), config)
-assert state["state"] == "idle" and calls == []
+assert calls == ["reload"]
+assert state["state"] == "reloading"
 
-# When unlimited ammo is off, but auto reload is on
-config[44] = 0
-config[43] = 1
-# Hook should be restored when unlim is turned off
+# Native reload animation is now playing in-game (is_reloading_flag is True)
+is_reloading_flag[0] = True
 tick(object(), config)
-assert not getattr(magazine, "_rx_unlim_hooked", False)
-magazine.bullet_count = 0
+# MUST NOT trigger reload again (no reload spam or cancellation of animation!)
+assert calls == ["reload"]
+
+# Even if is_reloading_flag ends early, retry timeout protects animation for 3.5s
+is_reloading_flag[0] = False
 tick(object(), config)
 assert calls == ["reload"]
 
-print("reload smoke: unlimited ammo tops off instantly and hooks consumption; normal reload triggers only when unlim is off")
+# Real game completes reload (fills 30 rounds into magazine from reserve)
+magazine.bullet_count = 30
+is_reloading_flag[0] = False
+tick(object(), config)
+assert state["state"] == "idle"
+assert magazine.ammo_box_bullet_count == 150
+assert calls == ["reload"]
+
+print("reload smoke: Option A validated: natural magazine depletion, real reload animation uninterrupted, infinite reserve replenished")

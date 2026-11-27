@@ -4002,52 +4002,7 @@ def _pb_auto_reload(me, c):
 
         return
 
-    if unlim_on:
-        cap = getattr(cur_mag, 'magazine_capacity', None) if cur_mag is not None else None
-        if not (isinstance(cap, (int, float)) and 1 <= int(cap) <= 400):
-            cap = attr_max if (isinstance(attr_max, (int, float)) and 1 <= int(attr_max) <= 400) else 30
-        eff_cap = int(cap)
-
-        if cur_mag is not None:
-            try:
-                bc = getattr(cur_mag, 'bullet_count', None)
-                if bc is None or bc < eff_cap:
-                    cur_mag.bullet_count = eff_cap
-                cur_mag.ammo_box_bullet_count = eff_cap * 5
-            except Exception:
-                pass
-
-            if not getattr(cur_mag, '_rx_unlim_hooked', False):
-                try:
-                    cur_mag._rx_orig_dec = getattr(cur_mag, 'decBulletFromMagazine', None)
-                    def _rx_dec(self, *a, **kw):
-                        return 0
-                    def _rx_inf(self, *a, **kw):
-                        return True
-                    cur_mag.decBulletFromMagazine = _rx_dec.__get__(cur_mag, type(cur_mag))
-                    cur_mag._bulletInfinite = _rx_inf.__get__(cur_mag, type(cur_mag))
-                    cur_mag._rx_unlim_hooked = True
-                except Exception:
-                    pass
-
-        if targets:
-            for tgt in targets:
-                try:
-                    t_obj, t_attr, t_idx = tgt
-                    if t_idx is not None:
-                        if t_idx < len(t_obj) and (t_obj[t_idx] is None or t_obj[t_idx] < eff_cap):
-                            t_obj[t_idx] = eff_cap
-                    elif t_attr:
-                        val = getattr(t_obj, t_attr, None)
-                        if val is None or val < eff_cap:
-                            setattr(t_obj, t_attr, eff_cap)
-                except Exception:
-                    pass
-
-        _PB_AR_STATE['state'] = 'idle'
-        return
-
-    # If unlim_on is False, restore hooked methods if previously active
+    # Unhook zero-consumption hook if previously active, restoring natural gun firing
     if cur_mag is not None and getattr(cur_mag, '_rx_unlim_hooked', False):
         try:
             orig = getattr(cur_mag, '_rx_orig_dec', None)
@@ -4061,21 +4016,41 @@ def _pb_auto_reload(me, c):
         except Exception:
             pass
 
+    # Option A: Real Gun Reload (Infinite Reserve)
+    # Replenishes reserve ammunition so the player never runs out of ammo.
+    # Magazine rounds decrease normally per shot, allowing each gun's authentic
+    # reload animation and timing (e.g. M4A1 1.8s, AKM 2.2s) to play cleanly without interruption.
+    if unlim_on and cur_mag is not None:
+        cap = getattr(cur_mag, 'magazine_capacity', None)
+        if not (isinstance(cap, (int, float)) and 1 <= int(cap) <= 400):
+            cap = attr_max if (isinstance(attr_max, (int, float)) and 1 <= int(attr_max) <= 400) else 30
+        eff_cap = int(cap)
+
+        reserve = getattr(cur_mag, 'ammo_box_bullet_count', None)
+        if reserve is None or (isinstance(reserve, (int, float)) and reserve < eff_cap * 2):
+            try:
+                cur_mag.ammo_box_bullet_count = eff_cap * 5
+            except Exception:
+                pass
+
     if cur_ammo is None:
         return
 
     st = _PB_AR_STATE['state']
     if cur_ammo > 0:
-        if st == 'reloading':
+        if st in ('reloading', 'retry'):
             _PB_AR_STATE['state'] = 'idle'
         return
 
+    # When empty (cur_ammo == 0):
+    # If the game's native reload animation is actively playing, never interrupt it!
     if _pb_ar_is_reloading(me, objs):
         _PB_AR_STATE['state'] = 'reloading'
         _PB_AR_STATE['reload_start'] = now
         return
 
-    if st in ('reloading', 'retry') and now - _PB_AR_STATE['reload_start'] < 2.5:
+    # Wait at least 3.5s for the gun's real reload animation to complete before any retry
+    if st in ('reloading', 'retry') and now - _PB_AR_STATE.get('reload_start', 0.0) < 3.5:
         return
 
     if _pb_ar_trigger_reload(me, objs):
