@@ -432,6 +432,22 @@ def _pb_aim_screen(pt, W, H, metrics):
 
     return x, y
 
+def _pb_healer_active(me, c):
+    if not c or len(c) <= 45 or c[45] < 0.5:
+        return False
+    if getattr(me, 'dtsCurRailID', None) == 90050:
+        return True
+    slot = getattr(me, 'dtsCurWeapon', None)
+    weapon = getattr(me, 'dtsWeapon%d' % slot, None) if isinstance(slot, int) else None
+    if weapon is None:
+        return False
+    wid = getattr(weapon, 'weaponID', None) or getattr(weapon, 'weaponId', None) or getattr(weapon, 'itemID', None)
+    if wid in (90050, 90205, 90265):
+        return True
+    name = str(getattr(weapon, 'name', '') or getattr(weapon, 'weaponName', '')).lower()
+    return 'healer' in name or 'shenshang' in name
+
+
 def _pb_aim(me, cands, allc=None, tm_cands=None):
 
     import math
@@ -442,6 +458,10 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
 
     if not c or len(c) < 11:
 
+        return
+
+    # Healer uses the ray hook, leaving camera rotation and enemy aim untouched.
+    if _pb_healer_active(me, c):
         return
 
     healer_aim_on = bool(len(c) > 45 and c[45] >= 0.5)
@@ -1516,7 +1536,7 @@ def _pb_wray(orig):
 
     return w
 
-def _pb_silent(me, cands, allc):
+def _pb_silent(me, cands, allc, tm_cands=None):
 
     import time
 
@@ -1530,8 +1550,12 @@ def _pb_silent(me, cands, allc):
 
     c = _pb_aimcfg()
 
-    if not c or len(c) < 14 or c[0] < 0.5:
+    if not c or len(c) < 14:
 
+        return
+
+    healer = _pb_healer_active(me, c)
+    if not healer and c[0] < 0.5:
         return
 
     fov, vischk, ignkn, bone, W, H, maxd = c[2], c[5], c[6], c[7], c[8], c[9], c[11]
@@ -1544,7 +1568,17 @@ def _pb_silent(me, cands, allc):
 
     best = None; bd = fov
 
-    if s360:
+    if healer:
+        rank_best = None
+        for e, fs, hs, kn, vis, p, dist, hp, mhp in (tm_cands or []):
+            if dist / 10.0 > maxd or (vischk >= 0.5 and not vis):
+                continue
+            rank = (0 if kn else (1 if hp < mhp else 2), dist)
+            if rank_best is None or rank < rank_best:
+                rank_best = rank
+                best = (e, p, dist)
+
+    elif s360:
 
         bd2 = 1e18
 
@@ -1570,7 +1604,7 @@ def _pb_silent(me, cands, allc):
 
                 bd2 = dist2; best = (e2, p2, dist2)
 
-    for (e, fs, hs, kn, vis, p, dist) in ([] if s360 else cands):
+    for (e, fs, hs, kn, vis, p, dist) in ([] if s360 or healer else cands):
 
         if _pb_enemy(me, e) != 1:
 
@@ -1620,7 +1654,17 @@ def _pb_silent(me, cands, allc):
 
         _PB_SIL['tv'] = 0
 
-    if int(bone) == 0:
+    if healer:
+        bw = _pb_boneworld(e, 'chest')
+        if bw is not None:
+            t = (bw.x, bw.y, bw.z)
+        else:
+            try:
+                mc = e.getModelCenter()
+                t = (mc.x, mc.y, mc.z)
+            except Exception:
+                t = (p.x, p.y + 11.0, p.z)
+    elif int(bone) == 0:
 
         hp = _pb_head_pos(e, 1.0)
 
@@ -1746,7 +1790,7 @@ def _pb_nrs_install():
 
     _PB_NRS['cls'] = cls
 
-def _pb_nrs_tick():
+def _pb_nrs_tick(me):
 
     c = _pb_aimcfg()
 
@@ -1768,7 +1812,7 @@ def _pb_nrs_tick():
 
     _PB_NRS['ns'] = False
 
-    _PB_NRS['sil'] = (len(c) >= 14 and c[13] >= 0.5) or (len(c) >= 15 and c[14] >= 0.5)
+    _PB_NRS['sil'] = (len(c) >= 14 and c[13] >= 0.5) or (len(c) >= 15 and c[14] >= 0.5) or _pb_healer_active(me, c)
 
     if (_PB_NRS['nr'] or _PB_NRS['ns'] or _PB_NRS['sil']) and _PB_NRS['cls'] is None:
 
@@ -4092,20 +4136,27 @@ def _pb_auto_reload(me, c):
         if st in ('reloading', 'retry'):
             elapsed = now - _PB_AR_STATE.get('reload_start', 0.0)
             reloading_now = _pb_ar_is_reloading(me, objs)
-            if (not reloading_now and elapsed >= 1.0) or elapsed >= 2.5:
+            if (not reloading_now and (elapsed >= 1.0 or cur_ammo > 0)) or elapsed >= 2.5:
+                refill_count = cur_ammo if cur_ammo > 0 else eff_cap
+                # A weapon may expose read-only mirrors. One failed mirror must
+                # not prevent later mirrors (including the HUD) from updating.
+                restored = False
                 try:
-                    cur_mag.bullet_count = eff_cap
-                    if targets:
-                        for tgt in targets:
-                            t_obj, t_attr, t_idx = tgt
-                            if t_idx is not None and t_idx < len(t_obj):
-                                t_obj[t_idx] = eff_cap
-                            elif t_attr:
-                                setattr(t_obj, t_attr, eff_cap)
-                    cur_ammo = eff_cap
-                    _PB_AR_STATE['state'] = 'idle'
+                    cur_mag.bullet_count = refill_count
+                    restored = int(cur_mag.bullet_count) == refill_count
                 except Exception:
                     pass
+                for t_obj, t_attr, t_idx in (targets or []):
+                    try:
+                        if t_idx is not None:
+                            t_obj[t_idx] = refill_count
+                        elif t_attr and not (t_obj is cur_mag and t_attr == 'bullet_count'):
+                            setattr(t_obj, t_attr, refill_count)
+                    except Exception:
+                        continue
+                if restored:
+                    cur_ammo = refill_count
+                    _PB_AR_STATE['state'] = 'idle'
 
     if cur_ammo is None:
         return
@@ -4113,7 +4164,8 @@ def _pb_auto_reload(me, c):
     st = _PB_AR_STATE['state']
     if cur_ammo > 0:
         if st in ('reloading', 'retry'):
-            _PB_AR_STATE['state'] = 'idle'
+            if not _pb_ar_is_reloading(me, objs):
+                _PB_AR_STATE['state'] = 'idle'
         return
 
     # When empty (cur_ammo == 0):
@@ -4172,9 +4224,9 @@ def _pb_actions(me, cands, allc, tm_cands=None):
 
     try:
 
-        _pb_nrs_tick()
+        _pb_nrs_tick(me)
 
-        _pb_silent(me, cands, allc)
+        _pb_silent(me, cands, allc, tm_cands)
 
     except Exception:
 
@@ -4580,7 +4632,7 @@ def _pb_esp(g):
 
                     allc.append((e, kn, vis, p, dist))
 
-                if on and enemy == 0:
+                if enemy == 0:
 
                     tm_cands.append((e, fs, hs, kn, vis, p, dist, hp, mhp))
 

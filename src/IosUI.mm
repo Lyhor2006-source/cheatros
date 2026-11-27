@@ -952,7 +952,7 @@ void RenderMemoryTab() {
             }
         }
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.65f, 0.75f, 0.85f));
-        ImGui::TextWrapped("100%% Aim snap to Teammates (Revive/Boost) when holding Healer Gun (90050)");
+        ImGui::TextWrapped("Silent 360 aim to teammates (Revive/Boost) with Healer Gun (90050)");
         ImGui::PopStyleColor(1);
         EndCard();
 

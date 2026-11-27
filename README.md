@@ -16,5 +16,6 @@ Push to `main` (or run **Actions -> Build iOS UI Dylib -> Run workflow**) on `ma
 Edit `payload/RosPayload.py`, then run `python tools/embed_payload.py` before building. `src/RosPayloadData.cpp` is generated from that source. Run `python tools/smoke_reload.py` for the ammo/reload controller smoke check.
 
 Unlimited Ammo maintains infinite reserve ammunition (`ammo_box_bullet_count`), while allowing natural magazine bullet depletion on shots. Each gun executes its authentic in-game reload animation and timing uninterrupted without reload-loop locks.
+After reload, the controller synchronizes each writable magazine display mirror independently; a read-only weapon field cannot block the HUD update. Healer Aim uses the existing ray hook to select teammates at any screen angle without rotating the camera.
 
 Fast Parachute scans in the background while disabled and remembers the original target and adjacent marker. When enabled during a match, it validates the cached address and marker before patching; if validation fails, it stays enabled and retries every two seconds. It reports active only after a patch applies.

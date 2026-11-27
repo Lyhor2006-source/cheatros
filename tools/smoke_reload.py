@@ -1,6 +1,7 @@
 """Exercise the embedded reload controller without loading the game runtime."""
 
 import ast
+import time
 from pathlib import Path
 
 
@@ -83,3 +84,37 @@ assert magazine.ammo_box_bullet_count == 150
 assert calls == ["reload"]
 
 print("reload smoke: Option A validated: natural magazine depletion, real reload animation uninterrupted, infinite reserve replenished")
+
+# A read-only weapon mirror used to stop the old all-or-nothing assignment loop.
+class ReadOnlyMirror:
+    @property
+    def curAmmo(self):
+        return 0
+
+
+hud_magazines = [0]
+mirror = ReadOnlyMirror()
+env["_pb_ar_probe"] = lambda _me: ((0, 42, 1), magazine.bullet_count, 30,
+                                  [(mirror, "curAmmo", None), (hud_magazines, None, 0)],
+                                  [], 42, magazine)
+magazine.bullet_count = 0
+hud_magazines[0] = 0
+state["state"] = "reloading"
+state["reload_start"] = time.time() - 3.0
+tick(object(), config)
+assert magazine.bullet_count == 30 and hud_magazines[0] == 30
+assert state["state"] == "idle"
+print("reload mirror smoke: read-only mirror does not block HUD magazine refill")
+
+# Some guns fill the live magazine before WeaponReload.onLeave fires.
+magazine.bullet_count = 7
+hud_magazines[0] = 0
+state["state"] = "reloading"
+state["reload_start"] = time.time()
+is_reloading_flag[0] = True
+tick(object(), config)
+assert state["state"] == "reloading" and hud_magazines[0] == 0
+is_reloading_flag[0] = False
+tick(object(), config)
+assert state["state"] == "idle" and magazine.bullet_count == 7 and hud_magazines[0] == 7
+print("reload timing smoke: early magazine fill synchronizes HUD after reload exit")
