@@ -29,7 +29,7 @@ class Bag:
     def __init__(self):
         self.calls = []
         self._idx2weapon_map = {0: SimpleNamespace(
-            _dtsItemID=42, _curRail=SimpleNamespace(
+            _dtsItemID=7042, _curRail=SimpleNamespace(
                 railData=SimpleNamespace(BULLET_ID=77)))}
 
     def addBulletToGunItem(self, gun_id, bullet_id, amount):
@@ -70,10 +70,10 @@ state["switch_until"] = 0.0
 # Active tick: reserve is topped off to 150, but magazine bullet_count remains 5 (natural depletion)
 tick(player, config)
 assert magazine.bullet_count == 5 and magazine.ammo_box_bullet_count == 150
-assert bag.calls == [(42, 77, 150)]
+assert bag.calls == [(7042, 77, 150)]
 assert calls == []
-wrong, detail = env['_pb_ar_add_bag_reserve'](player, 0, 99, 10)
-assert not wrong and detail == 'bag gun mismatch' and bag.calls == [(42, 77, 150)]
+wrong, detail = env['_pb_ar_add_bag_reserve'](player, 1, 99, 10)
+assert not wrong and detail == 'bag slot changed' and bag.calls == [(7042, 77, 150)]
 
 # Reserve spent by a native reload returns to the observed high-water value.
 magazine.ammo_box_bullet_count = 120

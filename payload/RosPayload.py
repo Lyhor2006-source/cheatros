@@ -4047,6 +4047,13 @@ def _pb_clone_bag_diag(me, probe):
         seen.add(id(obj))
         lines.append('%s type=%s' % (label, type(obj).__name__))
         if type(obj).__name__ == 'WeaponBag':
+            try:
+                selected = obj._idx2weapon_map.get(getattr(me, 'dtsCurWeapon', None))
+                lines.append('  selected item=%r class=%s' %
+                             (_pb_ar_read(selected, '_dtsItemID'), type(selected).__name__))
+                lines.append('  map slots=%r' % list(obj._idx2weapon_map.keys()))
+            except Exception as exc:
+                lines.append('  selected item inspect=%s' % type(exc).__name__)
             for method_name in ('addBulletToGunItem', 'notifyBulletChange',
                                 'recycleWeaponBullet', 'selectSlotIdxWeapon'):
                 try:
@@ -4141,9 +4148,14 @@ def _pb_clone_equipped_ammo():
 
 
 def _pb_ar_add_bag_reserve(me, slot, gun_id, amount):
-    """Use the v146 WeaponBag path only when the selected gun and ammo ID agree."""
+    """Use the v146 WeaponBag item ID for the selected gun slot."""
     try:
         bag = getattr(me, 'weapon_bag', None)
+        if slot != _pb_ar_active_slot(me):
+            return False, 'bag slot changed'
+        bag_slot = getattr(bag, '_cur_slot_idx', slot)
+        if isinstance(bag_slot, int) and bag_slot != slot:
+            return False, 'bag slot mismatch'
         mapping = getattr(bag, '_idx2weapon_map', None)
         gun = None
         if mapping is not None:
@@ -4151,15 +4163,9 @@ def _pb_ar_add_bag_reserve(me, slot, gun_id, amount):
             except Exception:
                 try: gun = mapping[slot]
                 except Exception: pass
-            if gun is None or _pb_ar_read(gun, '_dtsItemID') != gun_id:
-                try:
-                    matches = [candidate for candidate in mapping.values()
-                               if _pb_ar_read(candidate, '_dtsItemID') == gun_id]
-                    gun = matches[0] if len(matches) == 1 else None
-                except Exception:
-                    gun = None
-        if gun is None or _pb_ar_read(gun, '_dtsItemID') != gun_id:
-            return False, 'bag gun mismatch'
+        item_id = _pb_ar_read(gun, '_dtsItemID') if gun is not None else None
+        if item_id is None or item_id <= 0:
+            return False, 'bag item ID unavailable'
         ids = set()
         rail = getattr(gun, '_curRail', None)
         for owner in (gun, rail, getattr(gun, 'legacyProperties', None),
@@ -4183,9 +4189,9 @@ def _pb_ar_add_bag_reserve(me, slot, gun_id, amount):
         add = getattr(bag, 'addBulletToGunItem', None)
         if not callable(add) or amount <= 0:
             return False, 'bag add unavailable'
-        add(gun_id, next(iter(ids)), int(amount))
-        return True, ('bag add requested gun=%d bullet=%d count=%d' %
-                      (gun_id, next(iter(ids)), amount))
+        add(item_id, next(iter(ids)), int(amount))
+        return True, ('bag add requested weapon=%d item=%d bullet=%d count=%d' %
+                      (gun_id, item_id, next(iter(ids)), amount))
     except Exception as exc:
         return False, 'bag add error: %s' % type(exc).__name__
 

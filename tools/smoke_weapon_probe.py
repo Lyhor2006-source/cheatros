@@ -23,7 +23,7 @@ player = BattleGroundPlayer(dtsCurWeapon=1, dtsCurRailID=202, dtsWeapon1=Obj(wea
              dtsWeaponMagazineBullets=hud, weapon_mgr=Obj(_weapon=shotgun))
 class Bag:
     def __init__(self):
-        self._idx2weapon_map = {1: Obj(_dtsItemID=202,
+        self._idx2weapon_map = {1: Obj(_dtsItemID=81234,
             legacyProperties=Obj(getGunBulletData=lambda: Obj(railData=Obj(BULLET_ID=9))))}
         self.calls = []
 
@@ -54,7 +54,7 @@ assert all(obj is not rifle and obj is not rifle_rail and obj is not rifle_mag
 assert any(obj is hud and idx == 1 for obj, attr, idx in targets)
 print('weapon probe smoke: selected shotgun; inactive rifle magazine untouched')
 assert env['_pb_clone_equipped_ammo']() == 'OK 70 140'
-assert player.weapon_bag.calls == [(202, 9, 70)]
+assert player.weapon_bag.calls == [(81234, 9, 70)]
 assert shot_mag.ammo_box_bullet_count == 140 and rifle_mag.ammo_box_bullet_count == 70
 assert shot_mag.bullet_count == 0 and hud == [5, 0]
 assert published[-2].startswith('CLONE AMMO BAG DIAG')
