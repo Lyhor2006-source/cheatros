@@ -151,6 +151,16 @@ public:
         }
     }
 
+    std::string GetCloneAmmoDiagnostic() override {
+        const std::string path = baseDir_ + "/clone_ammo_diag.txt";
+        FILE* fp = std::fopen(path.c_str(), "rb");
+        if (!fp) return {};
+        char buf[8193] = {};
+        const size_t read = std::fread(buf, 1, sizeof(buf) - 1, fp);
+        std::fclose(fp);
+        return std::string(buf, read);
+    }
+
     void SetIpadView(bool enabled, float fovDeg) override {
         auto& ctx = IosUIBridge::GetContext();
         ctx.esp.ipadView = enabled;

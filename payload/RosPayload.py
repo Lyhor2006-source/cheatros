@@ -4019,6 +4019,20 @@ def _pb_clone_bag_diag(me, probe):
     lines = ['CLONE AMMO BAG DIAG']
     lines.append('slot=%r gun=%r rail=%r' % (
         getattr(me, 'dtsCurWeapon', None), probe[5], getattr(me, 'dtsCurRailID', None)))
+    magazine = probe[6]
+    lines.append('mag=%r reserve=%r cap=%r' % (
+        getattr(magazine, 'bullet_count', None),
+        getattr(magazine, 'ammo_box_bullet_count', None),
+        getattr(magazine, 'magazine_capacity', None)))
+    slot = getattr(me, 'dtsCurWeapon', None)
+    if isinstance(slot, int):
+        weapon = getattr(me, 'dtsWeapon%d' % slot, None)
+        if _pb_is_mapping(weapon):
+            try:
+                lines.append('weapon keys=%r' % ([(k, repr(weapon[k])[:80])
+                    for k in list(weapon.keys())[:30]],))
+            except Exception:
+                pass
     objects = []
     for name in ('weapon_bag', 'weaponBag', 'inventory', 'bag', 'itemBag', 'backpack'):
         try:

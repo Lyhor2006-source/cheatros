@@ -226,6 +226,7 @@ struct IHostBackend {
     virtual FeatureStatus GetMemoryFeatureStatus(MemoryFeature feature) = 0;
     virtual bool RequestMemoryFeature(MemoryFeature feature, bool enable, float param = 1.0f) = 0;
     virtual std::string CloneEquippedAmmo() = 0;
+    virtual std::string GetCloneAmmoDiagnostic() = 0;
     virtual void SetSpeedMultiplier(float multiplier) = 0;
     virtual const char* GetMemoryFeatureName(MemoryFeature feature) = 0;
 

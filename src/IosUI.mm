@@ -941,10 +941,17 @@ void RenderMemoryTab() {
         ImGui::TableNextColumn();
         BeginCard("##clone_ammo", "CLONE AMMO", 5, false);
         static std::string cloneStatus;
+        static std::string cloneDiag;
         if (ImGui::Button("Clone Ammo x2", ImVec2(std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f), 30.0f)) && be) {
             cloneStatus = be->CloneEquippedAmmo();
+            cloneDiag = be->GetCloneAmmoDiagnostic();
         }
         if (!cloneStatus.empty()) ImGui::TextUnformatted(cloneStatus.c_str());
+        if (!cloneDiag.empty()) {
+            ImGui::BeginChild("##clone_diag", ImVec2(0.0f, 110.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
+            ImGui::TextUnformatted(cloneDiag.c_str());
+            ImGui::EndChild();
+        }
         EndCard();
 
         ImGui::TableNextColumn();
