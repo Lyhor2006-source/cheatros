@@ -572,6 +572,13 @@ private:
             ent.maxY = std::max(hy, fy);
             ent.headX = hx;
             ent.headY = hy;
+            // The game can return projected points outside the viewport.
+            // Keep those entities for edge arrows, not boxes or clamped labels.
+            ent.onScreen = ent.onScreen && std::isfinite(cx) &&
+                std::isfinite(ent.minY) && std::isfinite(ent.maxY) &&
+                cx >= 0.0f && cx <= screenW &&
+                ent.maxY >= 0.0f && ent.minY <= screenH &&
+                boxH <= screenH * 2.0f;
 
             // Parse up to 16 bones separated by ';'
             std::istringstream bStream(bonePart);

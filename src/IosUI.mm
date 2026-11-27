@@ -1446,52 +1446,56 @@ void RenderEspOverlay(ImDrawList* draw, ImVec2 displaySize) {
             if ((esp.name && !e.name.empty()) || esp.distance) labels.push_back({&e, col});
         }
 
-        // Keep one label per visible player. Prefer the top edge, then the bottom.
+        // Anchor compact labels to their boxes; crowded labels yield to closer players.
         std::sort(labels.begin(), labels.end(), [](const EspLabel& a, const EspLabel& b) {
-            return a.entity->distanceMeters < b.entity->distanceMeters;
+            if (a.entity->distanceMeters != b.entity->distanceMeters)
+                return a.entity->distanceMeters < b.entity->distanceMeters;
+            return a.entity->playerId < b.entity->playerId;
         });
         std::vector<ImVec4> occupied;
         occupied.reserve(labels.size());
         ImFont* font = ImGui::GetFont();
         for (const EspLabel& item : labels) {
             const auto& e = *item.entity;
-            const float nameSize = 10.0f;
-            const float distanceSize = 9.5f;
+            const float nameSize = 9.0f;
+            const float distanceSize = 8.5f;
             char distanceText[24] = {};
             if (esp.distance) std::snprintf(distanceText, sizeof(distanceText), "%.0fm", e.distanceMeters);
             const bool showName = esp.name && !e.name.empty();
-            const float nameWidth = showName ? std::min(font->CalcTextSizeA(nameSize, FLT_MAX, 0.0f, e.name.c_str()).x, 112.0f) : 0.0f;
-            const float distanceWidth = esp.distance ? 34.0f : 0.0f;
-            const float width = 13.0f + nameWidth + (showName && esp.distance ? 6.0f : 0.0f) + distanceWidth;
-            const float height = 18.0f;
+            const float nameWidth = showName ? std::min(font->CalcTextSizeA(nameSize, FLT_MAX, 0.0f, e.name.c_str()).x, 90.0f) : 0.0f;
+            const float distanceWidth = esp.distance ? 29.0f : 0.0f;
+            const float width = 10.0f + nameWidth + (showName && esp.distance ? 4.0f : 0.0f) + distanceWidth;
+            const float height = 15.0f;
             const float x = std::clamp((e.minX + e.maxX - width) * 0.5f, 3.0f, std::max(3.0f, displaySize.x - width - 3.0f));
-            float y = std::max(3.0f, e.minY - height - 4.0f);
-            const float below = std::min(displaySize.y - height - 3.0f, e.maxY + 4.0f);
-            for (int row = 0; row < 3; ++row) {
+            const float above = e.minY - height - 3.0f;
+            const float below = e.maxY + 3.0f;
+            float y = 0.0f;
+            bool placed = false;
+            for (float candidate : {above, below}) {
+                if (candidate < 3.0f || candidate + height > displaySize.y - 3.0f) continue;
                 bool overlaps = false;
                 for (const ImVec4& used : occupied) {
-                    if (x < used.z + 3.0f && x + width + 3.0f > used.x && y < used.w + 3.0f && y + height + 3.0f > used.y) {
+                    if (x < used.z + 3.0f && x + width + 3.0f > used.x && candidate < used.w + 3.0f && candidate + height + 3.0f > used.y) {
                         overlaps = true;
                         break;
                     }
                 }
-                if (!overlaps) break;
-                y = row == 0 ? below : std::max(3.0f, e.minY - (row + 2) * (height + 3.0f));
+                if (!overlaps) { y = candidate; placed = true; break; }
             }
+            if (!placed) continue;
             occupied.emplace_back(x, y, x + width, y + height);
             const ImVec2 min(x, y), max(x + width, y + height);
-            draw->AddRectFilled(min, max, IM_COL32(10, 17, 26, 225), 4.0f);
-            draw->AddRect(min, max, item.accent, 4.0f, 0, 1.0f);
-            draw->AddRectFilled(ImVec2(x + 3.0f, y + 4.0f), ImVec2(x + 5.0f, y + height - 4.0f), item.accent, 1.0f);
-            float textX = x + 9.0f;
+            draw->AddRectFilled(min, max, IM_COL32(8, 15, 22, 188), 3.0f);
+            draw->AddRectFilled(ImVec2(x, y + 2.0f), ImVec2(x + 2.0f, y + height - 2.0f), item.accent, 1.0f);
+            float textX = x + 6.0f;
             if (showName) {
                 draw->PushClipRect(ImVec2(textX, y), ImVec2(textX + nameWidth, y + height), true);
-                draw->AddText(font, nameSize, ImVec2(textX, y + 3.0f), IM_COL32(245, 249, 252, 255), e.name.c_str());
+                draw->AddText(font, nameSize, ImVec2(textX, y + 2.0f), IM_COL32(245, 249, 252, 250), e.name.c_str());
                 draw->PopClipRect();
-                textX += nameWidth + 6.0f;
+                textX += nameWidth + 4.0f;
             }
             if (esp.distance) {
-                draw->AddText(font, distanceSize, ImVec2(textX, y + 3.0f), item.accent, distanceText);
+                draw->AddText(font, distanceSize, ImVec2(textX, y + 2.0f), item.accent, distanceText);
             }
         }
     }
