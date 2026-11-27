@@ -155,7 +155,7 @@ public:
         const std::string path = baseDir_ + "/clone_ammo_diag.txt";
         FILE* fp = std::fopen(path.c_str(), "rb");
         if (!fp) return {};
-        char buf[8193] = {};
+        char buf[65537] = {};
         const size_t read = std::fread(buf, 1, sizeof(buf) - 1, fp);
         std::fclose(fp);
         return std::string(buf, read);

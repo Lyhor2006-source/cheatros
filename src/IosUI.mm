@@ -1,6 +1,7 @@
 #import "IosUI.h"
 #import "MemoryCheats.h"
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 
 #include "imgui_internal.h"
 #include <algorithm>
@@ -945,6 +946,20 @@ void RenderMemoryTab() {
         if (ImGui::Button("Clone Ammo x2", ImVec2(std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f), 30.0f)) && be) {
             cloneStatus = be->CloneEquippedAmmo();
             cloneDiag = be->GetCloneAmmoDiagnostic();
+        }
+        if (ImGui::Button("Copy Debug", ImVec2(std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f), 30.0f))) {
+            if (be) cloneDiag = be->GetCloneAmmoDiagnostic();
+            if (cloneDiag.empty()) {
+                PushToast("Tap Clone Ammo x2 first");
+            } else {
+                NSString* debugText = [NSString stringWithUTF8String:cloneDiag.c_str()];
+                if (debugText) {
+                    [UIPasteboard generalPasteboard].string = debugText;
+                    PushToast("Debug copied");
+                } else {
+                    PushToast("Debug copy failed");
+                }
+            }
         }
         if (!cloneStatus.empty()) ImGui::TextUnformatted(cloneStatus.c_str());
         if (!cloneDiag.empty()) {
