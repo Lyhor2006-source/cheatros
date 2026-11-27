@@ -1570,8 +1570,16 @@ def _pb_silent(me, cands, allc, tm_cands=None):
 
     if healer:
         rank_best = None
+        metrics = c[16:22] if len(c) >= 22 else []
         for e, fs, hs, kn, vis, p, dist, hp, mhp in (tm_cands or []):
-            if dist / 10.0 > maxd or (vischk >= 0.5 and not vis):
+            if not vis or dist / 10.0 > maxd:
+                continue
+            fx, fy = _pb_aim_screen(fs, W, H, metrics)
+            hx, hy = _pb_aim_screen(hs, W, H, metrics)
+            ax, ay = hx, hy + 0.35 * (fy - hy)
+            if not (0.0 <= ax <= W and 0.0 <= ay <= H):
+                continue
+            if (ax - cx) ** 2 + (ay - cy) ** 2 > fov ** 2:
                 continue
             rank = (0 if kn else (1 if hp < mhp else 2), dist)
             if rank_best is None or rank < rank_best:
@@ -4416,7 +4424,7 @@ def _pb_esp(g):
 
                 enemy = _pb_enemy(me, e)
 
-                if enemy == 0:
+                if on and enemy == 0:
                     try:
                         if me is not None and e is not None and getattr(me, 'id', None) == getattr(e, 'id', None):
                             _PB_BMAP.pop(eid, None)
