@@ -504,7 +504,7 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
 
     cx = W * 0.5; cy = H * 0.5
 
-    fr = 0.0 if int(bone) == 0 else (0.30 if int(bone) == 1 else 0.55)
+    fr = 0.35 if use_healer_aim else (0.0 if int(bone) == 0 else (0.30 if int(bone) == 1 else 0.55))
 
     best = None; bd = fov
 
@@ -516,14 +516,22 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
 
         cam = me.position
 
-    if use_healer_aim and tm_cands:
+    if use_healer_aim:
+        if not tm_cands:
+            return
         # Healer Aim: prioritize knocked (downed) teammates to revive them!
         best_rank = None
         for t in tm_cands:
             te, tfs, ths, tkn, tvis, tp, tdist, thp, tmhp = t
             tfx, tfy = _pb_aim_screen(tfs, W, H, metrics)
             thx, thy = _pb_aim_screen(ths, W, H, metrics)
-            tax = thx; tay = thy + 0.15 * (tfy - thy)
+            tax = thx; tay = thy + 0.35 * (tfy - thy)
+            if not (0.0 <= tax <= W and 0.0 <= tay <= H):
+                continue
+            if tdist / 10.0 > maxd:
+                continue
+            if vischk >= 0.5 and not tvis:
+                continue
             td_screen = ((tax - cx) ** 2 + (tay - cy) ** 2) ** 0.5
             # Rank 0: knocked (revive!), Rank 1: injured (heal!), Rank 2: full hp (boost speed!)
             rank = (0 if tkn else (1 if thp < tmhp else 2), td_screen)
@@ -579,7 +587,7 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
 
 
 
-    key = ['head', 'chest', 'pelvis'][min(2, max(0, int(bone)))]
+    key = 'chest' if use_healer_aim else ['head', 'chest', 'pelvis'][min(2, max(0, int(bone)))]
 
     target = _pb_boneworld(e, key)
 

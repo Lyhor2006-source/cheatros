@@ -17,4 +17,4 @@ Edit `payload/RosPayload.py`, then run `python tools/embed_payload.py` before bu
 
 Unlimited Ammo maintains infinite reserve ammunition (`ammo_box_bullet_count`), while allowing natural magazine bullet depletion on shots. Each gun executes its authentic in-game reload animation and timing uninterrupted without reload-loop locks.
 
-Fast Parachute uses the native memory scan and reports active only after a patch applies. If its target allocation is not present yet, it stays enabled and retries every two seconds.
+Fast Parachute scans in the background while disabled and remembers the original target and adjacent marker. When enabled during a match, it validates the cached address and marker before patching; if validation fails, it stays enabled and retries every two seconds. It reports active only after a patch applies.

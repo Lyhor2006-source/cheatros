@@ -35,7 +35,16 @@ struct WorkerTask {
     bool enable;
     float param;
     bool silentRetry = false;
+    bool probeOnly = false;
 };
+
+struct ParachuteCandidate {
+    uintptr_t address;
+    uintptr_t markerAddress;
+    uint32_t markerValue;
+};
+
+std::vector<ParachuteCandidate> gParachuteCandidates;
 
 std::mutex gStateMutex;
 FeatureRuntimeState gFeatures[kFeatureCount];
@@ -148,7 +157,7 @@ std::vector<uintptr_t> ScanNoGrassAddrs() {
             const size_t limit = static_cast<size_t>(std::min<uintptr_t>(65536, reg.end - cur));
             if (chunk < 4 || !MachMemory::ReadMemory(cur, buf.data(), chunk)) continue;
 
-            for (size_t off = 0; off < limit; off += 4) {
+            for (size_t off = 0; off + 4 <= limit; off += 4) {
                 uint32_t v = 0;
                 std::memcpy(&v, buf.data() + off, 4);
                 if (v != 5122U) continue;
@@ -187,8 +196,8 @@ std::vector<uintptr_t> ScanNoGrassAddrs() {
     return hits;
 }
 
-std::vector<uintptr_t> ScanFastParachuteInRegions(const std::vector<MachMemory::MemoryRegion>& regions) {
-    std::vector<uintptr_t> hits;
+std::vector<ParachuteCandidate> ScanFastParachuteInRegions(const std::vector<MachMemory::MemoryRegion>& regions) {
+    std::vector<ParachuteCandidate> hits;
     std::vector<uint8_t> buf(65536 + 256);
 
     for (const auto& reg : regions) {
@@ -197,36 +206,53 @@ std::vector<uintptr_t> ScanFastParachuteInRegions(const std::vector<MachMemory::
             const size_t limit = static_cast<size_t>(std::min<uintptr_t>(65536, reg.end - cur));
             if (chunk < 4 || !MachMemory::ReadMemory(cur, buf.data(), chunk)) continue;
 
-            for (size_t off = 0; off < limit; off += 4) {
+            for (size_t off = 0; off + 4 <= limit; off += 4) {
                 uint32_t v = 0;
                 std::memcpy(&v, buf.data() + off, 4);
                 if (v != 2000U) continue;
                 const size_t winStart = (off > 100) ? (off - 100) : 0;
                 const size_t winEnd = std::min(chunk, off + 100);
-                bool neighborOk = false;
                 for (size_t scan = winStart; scan + 4 <= winEnd; scan += 4) {
                     if (scan == off) continue;
                     uint32_t nv = 0;
                     std::memcpy(&nv, buf.data() + scan, 4);
                     if ((nv & ~1U) == 118U || nv == 0x8000a000U || nv == 0xa000U) {
-                        neighborOk = true;
+                        hits.push_back({cur + off, cur + scan, nv});
                         break;
                     }
                 }
-                if (neighborOk) {
-                    hits.push_back(cur + off);
-                    if (hits.size() >= 32) return hits;
-                }
+                if (hits.size() >= 32) return hits;
             }
         }
     }
     return hits;
 }
 
-std::vector<uintptr_t> ScanFastParachuteAddrs() {
+std::vector<ParachuteCandidate> ScanFastParachuteAddrs() {
     auto hits = ScanFastParachuteInRegions(QueryPreferredRegions(MachMemory::GetRegionMode()));
     if (!hits.empty()) return hits;
     return ScanFastParachuteInRegions(MachMemory::QueryRegions(MachMemory::RegionMode::Standard));
+}
+
+std::vector<uintptr_t> ValidateParachuteCandidates(
+    const std::vector<ParachuteCandidate>& candidates,
+    const std::vector<MachMemory::MemoryRegion>& regions) {
+    std::vector<uintptr_t> hits;
+    for (const auto& candidate : candidates) {
+        const bool mapped = std::any_of(regions.begin(), regions.end(), [&](const auto& region) {
+            return candidate.address >= region.start && candidate.address < region.end &&
+                   region.end - candidate.address >= 4 &&
+                   candidate.markerAddress >= region.start && candidate.markerAddress < region.end &&
+                   region.end - candidate.markerAddress >= 4;
+        });
+        if (!mapped) continue;
+        uint32_t value = 0, marker = 0;
+        if (!MachMemory::ReadValue(candidate.address, &value) ||
+            !MachMemory::ReadValue(candidate.markerAddress, &marker) ||
+            marker != candidate.markerValue || value == 0 || value > 2000 || value == 60) continue;
+        hits.push_back(candidate.address);
+    }
+    return hits;
 }
 
 void ScanAndPatchSpeedInRegions(
@@ -433,6 +459,15 @@ std::vector<uintptr_t> ScanCameraWideDoubles() {
 void ExecuteTask(const WorkerTask& task) {
     using MF = IosUIBridge::MemoryFeature;
     const size_t idx = static_cast<size_t>(task.feature);
+
+    if (task.probeOnly) {
+        auto candidates = ScanFastParachuteAddrs();
+        if (!candidates.empty()) {
+            std::lock_guard<std::mutex> lock(gStateMutex);
+            gParachuteCandidates = std::move(candidates);
+        }
+        return;
+    }
 
     if (!task.enable) {
         size_t rem = 0;
@@ -758,7 +793,15 @@ void ExecuteTask(const WorkerTask& task) {
             break;
         }
         case MF::FastParachute: {
-            auto hits = ScanFastParachuteAddrs();
+            auto candidates = ScanFastParachuteAddrs();
+            if (!candidates.empty()) {
+                std::lock_guard<std::mutex> lock(gStateMutex);
+                gParachuteCandidates = candidates;
+            } else {
+                std::lock_guard<std::mutex> lock(gStateMutex);
+                candidates = gParachuteCandidates;
+            }
+            auto hits = ValidateParachuteCandidates(candidates, regions);
             matched = hits.size();
             applied = ApplyDwordToTargets(newPatches, hits, 60U);
             break;
@@ -1096,6 +1139,9 @@ void Tick() {
             if (fp.enabled && !fp.pending && fp.patches.Count() == 0) {
                 retries.push_back(WorkerTask{
                     IosUIBridge::MemoryFeature::FastParachute, true, 1.0f, true});
+            } else if (!fp.enabled && gParachuteCandidates.empty()) {
+                retries.push_back(WorkerTask{
+                    IosUIBridge::MemoryFeature::FastParachute, false, 1.0f, false, true});
             }
         }
     }
