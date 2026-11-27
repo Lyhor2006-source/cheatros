@@ -10,3 +10,9 @@ Standalone iOS `arm64` Metal + Dear ImGui overlay `.dylib` (`RosModV2UI.dylib`).
 ## GitHub Actions Cloud Build
 
 Push to `main` (or run **Actions -> Build iOS UI Dylib -> Run workflow**) on `macos-latest` to compile `RosModV2UI.dylib` (`iphoneos` / `arm64`) and download it from the workflow artifacts.
+
+## Embedded game payload
+
+Edit `payload/RosPayload.py`, then run `python tools/embed_payload.py` before building. `src/RosPayloadData.cpp` is generated from that source. Run `python tools/smoke_reload.py` for the ammo/reload controller smoke check.
+
+Unlimited Ammo replenishes reserve ammunition when low. Magazine rounds still decrease on shots, and an empty magazine requests the game's reload action. Auto Reload requests the same action without adding reserve ammunition. Neither feature writes a filled magazine directly.
