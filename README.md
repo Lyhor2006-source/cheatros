@@ -17,6 +17,6 @@ Edit `payload/RosPayload.py`, then run `python tools/embed_payload.py` before bu
 
 Unlimited Ammo maintains infinite reserve ammunition (`ammo_box_bullet_count`), while allowing natural magazine bullet depletion on shots. Each gun executes its authentic in-game reload animation and timing uninterrupted without reload-loop locks.
 After reload, the controller synchronizes each writable magazine display mirror independently; a read-only weapon field cannot block the HUD update. Reload probing and writes are scoped to the equipped weapon, and the observed reserve count is restored after a native reload. Healer Aim uses the existing ray hook to select visible teammates inside the configured camera FOV without rotating the camera.
-The Memory tab's Clone Ammo button doubles the equipped weapon's reserve ammo once per press. It verifies the write and reports the result, leaving the loaded magazine and other equipped slots unchanged.
+The Memory tab's Clone Ammo button requires a verified bag-inventory binding. Until the v146 bag field is identified, it records `clone_ammo_diag.txt` in the app's `RyomenX` cache and reports that inventory mapping is needed. It does not change a temporary weapon reserve and claim that bag ammo was cloned.
 
 Fast Parachute scans in the background while disabled and remembers the original target and adjacent marker. When enabled during a match, it validates the cached address and marker before patching; if validation fails, it stays enabled and retries every two seconds. It reports active only after a patch applies.

@@ -115,21 +115,21 @@ public:
         }
     }
 
-    bool CloneEquippedAmmo() override {
+    std::string CloneEquippedAmmo() override {
         if (!payloadInjected_) {
             IosUI::PushToast("Enter match first");
-            return false;
+            return "Enter match first";
         }
         const std::string resultPath = baseDir_ + "/clone_ammo.txt";
         std::remove(resultPath.c_str());
         if (!IosPythonRuntime::Execute("_pb_clone_equipped_ammo()\n")) {
             IosUI::PushToast("Clone Ammo unavailable");
-            return false;
+            return "Clone Ammo unavailable";
         }
         FILE* fp = std::fopen(resultPath.c_str(), "rb");
         if (!fp) {
             IosUI::PushToast("Clone Ammo result missing");
-            return false;
+            return "Clone Ammo result missing";
         }
         char line[128] = {};
         const bool read = std::fgets(line, sizeof(line), fp) != nullptr;
@@ -139,15 +139,16 @@ public:
             char toast[64];
             std::snprintf(toast, sizeof(toast), "Ammo %d -> %d", before, after);
             IosUI::PushToast(toast);
-            return true;
+            return toast;
         }
         if (read && std::strncmp(line, "ERR ", 4) == 0) {
             line[std::strcspn(line, "\r\n")] = 0;
             IosUI::PushToast(line + 4);
+            return line + 4;
         } else {
             IosUI::PushToast("Clone Ammo failed");
+            return "Clone Ammo failed";
         }
-        return false;
     }
 
     void SetIpadView(bool enabled, float fovDeg) override {

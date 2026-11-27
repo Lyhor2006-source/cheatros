@@ -940,9 +940,11 @@ void RenderMemoryTab() {
 
         ImGui::TableNextColumn();
         BeginCard("##clone_ammo", "CLONE AMMO", 5, false);
+        static std::string cloneStatus;
         if (ImGui::Button("Clone Ammo x2", ImVec2(std::max(ImGui::GetContentRegionAvail().x - 4.0f, 1.0f), 30.0f)) && be) {
-            be->CloneEquippedAmmo();
+            cloneStatus = be->CloneEquippedAmmo();
         }
+        if (!cloneStatus.empty()) ImGui::TextUnformatted(cloneStatus.c_str());
         EndCard();
 
         ImGui::TableNextColumn();

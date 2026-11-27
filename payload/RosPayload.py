@@ -4015,31 +4015,56 @@ def _pb_ar_trigger_reload(me, objs):
 
 
 
+def _pb_clone_bag_diag(me, probe):
+    lines = ['CLONE AMMO BAG DIAG']
+    lines.append('slot=%r gun=%r rail=%r' % (
+        getattr(me, 'dtsCurWeapon', None), probe[5], getattr(me, 'dtsCurRailID', None)))
+    objects = []
+    for name in ('weapon_bag', 'weaponBag', 'inventory', 'bag', 'itemBag', 'backpack'):
+        try:
+            obj = getattr(me, name, None)
+            if obj is not None:
+                objects.append((name, obj))
+        except Exception:
+            pass
+    for obj in _pb_logic_objs(me):
+        kind = type(obj).__name__.lower()
+        if 'bag' in kind or 'invent' in kind or 'backpack' in kind:
+            objects.append(('logic', obj))
+    seen = set()
+    for label, obj in objects:
+        if id(obj) in seen:
+            continue
+        seen.add(id(obj))
+        lines.append('%s type=%s' % (label, type(obj).__name__))
+        if _pb_is_mapping(obj):
+            try:
+                lines.append('  entries=%r' % ([(k, repr(obj[k])[:120]) for k in list(obj.keys())[:30]],))
+            except Exception:
+                pass
+        for name in dir(obj):
+            if name.startswith('__') or not any(t in name.lower() for t in
+                    ('ammo', 'bullet', 'item', 'count', 'content', 'stack', 'slot', 'bag')):
+                continue
+            try:
+                value = getattr(obj, name)
+                lines.append('  %s=%s' % (name, '<callable>' if callable(value) else repr(value)[:160]))
+            except Exception:
+                pass
+            if len(lines) >= 140:
+                break
+    _pb_publish(_RYOMENX_DIR + '/clone_ammo_diag.txt', '\n'.join(lines))
+
+
 def _pb_clone_equipped_ammo():
     result = 'ERR No equipped weapon'
     try:
         me = BigWorld.player()
         if me is not None and 'BattleGround' in type(me).__name__:
             probe = _pb_ar_probe(me)
-            if probe and probe[0] is not None and probe[6] is not None:
-                key, current, capacity, targets, reload_objs, gun_id, magazine = probe
-                reserve = getattr(magazine, 'ammo_box_bullet_count', None)
-                if isinstance(reserve, (int, float)) and not isinstance(reserve, bool) and reserve > 0:
-                    before = int(reserve)
-                    if before > 4999:
-                        result = 'ERR Ammo limit reached'
-                    else:
-                        after = before * 2
-                        magazine.ammo_box_bullet_count = after
-                        if int(magazine.ammo_box_bullet_count) == after:
-                            reserve_key = (gun_id, getattr(me, 'dtsCurRailID', None))
-                            floors = _PB_AR_STATE.setdefault('reserve_highwater', {})
-                            floors[reserve_key] = max(floors.get(reserve_key, 0), after)
-                            result = 'OK %d %d' % (before, after)
-                        else:
-                            result = 'ERR Ammo write rejected'
-                else:
-                    result = 'ERR No reserve ammo'
+            if probe and probe[0] is not None:
+                _pb_clone_bag_diag(me, probe)
+                result = 'ERR Bag inventory not mapped; send clone_ammo_diag.txt'
     except Exception:
         result = 'ERR Clone unavailable'
     _pb_publish(_RYOMENX_DIR + '/clone_ammo.txt', result)
@@ -4176,19 +4201,22 @@ def _pb_auto_reload(me, c):
     # When empty (cur_ammo == 0):
     # If the game's native reload animation is actively playing, never interrupt it!
     if _pb_ar_is_reloading(me, objs):
-        _PB_AR_STATE['state'] = 'reloading'
-        _PB_AR_STATE['reload_start'] = now
+        if st not in ('reloading', 'retry'):
+            _PB_AR_STATE['state'] = 'reloading'
+            _PB_AR_STATE['reload_start'] = now
         return
 
-    # Wait at least 3.5s for the gun's real reload animation to complete before any retry
-    if st in ('reloading', 'retry') and now - _PB_AR_STATE.get('reload_start', 0.0) < 3.5:
+    # One reload request per empty magazine; a failed refill must not spam reload.
+    if st in ('reloading', 'retry', 'failed'):
+        if st != 'failed' and now - _PB_AR_STATE.get('reload_start', 0.0) >= 3.5:
+            _PB_AR_STATE['state'] = 'failed'
         return
 
     if _pb_ar_trigger_reload(me, objs):
         _PB_AR_STATE['state'] = 'reloading'
         _PB_AR_STATE['reload_start'] = now
     else:
-        _PB_AR_STATE['state'] = 'retry'
+        _PB_AR_STATE['state'] = 'failed'
         _PB_AR_STATE['reload_start'] = now
 
 

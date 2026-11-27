@@ -127,3 +127,24 @@ is_reloading_flag[0] = False
 tick(object(), config)
 assert state["state"] == "idle" and magazine.bullet_count == 7 and hud_magazines[0] == 7
 print("reload timing smoke: early magazine fill synchronizes HUD after reload exit")
+
+class StuckMagazine:
+    magazine_capacity = 5
+    ammo_box_bullet_count = 70
+
+    @property
+    def bullet_count(self):
+        return 0
+
+
+stuck = StuckMagazine()
+env["_pb_ar_probe"] = lambda _me: ((0, 43, 2), 0, 5, [], [], 43, stuck)
+state["key"] = (0, 43, 2)
+state["state"] = "reloading"
+state["reload_start"] = time.time() - 4.0
+is_reloading_flag[0] = False
+before_calls = len(calls)
+tick(object(), config)
+tick(object(), config)
+assert state["state"] == "failed" and len(calls) == before_calls
+print("reload retry smoke: failed refill does not request a second reload")
