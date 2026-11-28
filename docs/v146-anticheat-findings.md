@@ -71,13 +71,26 @@ Further disassembly and reverse engineering of `Payload/client.app/client` mappe
    - Patch: replaced with `stur xzr, [x29, #-0x10]` (`bf031ff8`).
    - Effect: Directly zeroes the 8-byte buffer and skips dispatch. `PyString_FromStringAndSize` returns an 8-byte null token `\0\0\0\0\0\0\0\0` cleanly.
 
+5. **`check_graphic_states` (VA `0x10104d6e0`, file offset `0x104d710`)**:
+   - Instruction at `0x10104d710`: `csel x0, x9, x8, ne` (`2011889a`), checking hooked graphics states/views.
+   - Patch: replaced with `mov x0, x8` (`e00308aa`).
+   - Effect: Always returns `Py_False`, neutralizing UI overlay and graphic context hook detection.
+
+6. **`inspect_system_processes` (VA `0x10104d728`, file offset `0x104d740`)**:
+   - Instruction at `0x10104d740`: `blr x8` (`00013fd6`).
+   - Patch: replaced with `nop` (`1f2003d5`).
+   - Effect: Skips system process inspection entirely.
+
+7. **`inspect_system_windows` (VA `0x10104d760`, file offset `0x104d778`)**:
+   - Instruction at `0x10104d778`: `blr x8` (`00013fd6`).
+   - Patch: replaced with `nop` (`1f2003d5`).
+   - Effect: Skips system window/overlay hierarchy inspection.
+
 ### Verified Full-Patched Builds
 
-- `tools/patch_v146_full_anticheat.py` applies all 6 patches (2 in HK, 4 in client), with optional `--dylib` injection.
-- Standalone patched IPA: `ROS-Hariki-iOS-v146-Ultra-8GB-full-patched-unsigned.ipa` (SHA-256 `38c7ffb03bad036e946318578b7f19f55cc892e5c69b5b2ae06b51a29b938760`).
+- `tools/patch_v146_full_anticheat.py` applies all 9 patches (2 in HK, 7 in client), with optional `--dylib` injection.
+- Full-patched + RosModV2UI injected IPA: `ROS-Hariki-iOS-v146-Ultra-8GB-full-patched-RosModV2UI-unsigned.ipa` (SHA-256 `c61b49b5abd2e5aca6df23582f007eba8c3a9f1125c3be831597b6acf8387bee`).
   - Patched HK SHA-256: `345ad502ca8e80c4c145885bb3f4c2f93a0deb966ad3493eb83eee33ab13aace`
-  - Patched client SHA-256: `70d48b9ee41626b607587db8fd0ead9a279759dd0653f40bb4e3d1efbfd55f29`
-- Full-patched + RosModV2UI injected IPA: `ROS-Hariki-iOS-v146-Ultra-8GB-full-patched-RosModV2UI-unsigned.ipa` (SHA-256 `429d391f9126f922c62d8f74b474b126ea0b1158d5f7d0954074e6e66038bc85`).
-  - Patched client SHA-256: `c67f1b1d24e766606eb8854261a5d3975e79a5dbebfb51f67d58330925c110db`
+  - Patched client SHA-256: `c2e18aeb1344c61e73a3482019e859d6859859d9c4e9c633d992cb0e8de4c48a`
 
 Reproduce the static mapping: verify both SHA-256 digests, parse the Mach-O `LC_SEGMENT_64` records for `__TEXT`, locate the `anti_cheat_check` string at client file offset `0x316254c`, then find its 64-bit little-endian preferred VA `0x10316254c` at `0x3851480`. The next 64-bit value in that table record is the wrapper VA. Disassemble its bytes as arm64 with Capstone.

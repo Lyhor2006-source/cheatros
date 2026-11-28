@@ -9,6 +9,9 @@ Patches:
    - 0x104d664: inspect_loaded_modules -> NOP blr x8 (skip dylib scan, return Py_None)
    - 0x104d4e0: mobile_acsdk_check -> zero SSO std::string buffer, skip blr x9 (return clean "")
    - 0x104cddc: anti_cheat_check -> zero 8-byte output buffer, skip blr x8 (return clean 8-byte null token)
+   - 0x104d710: check_graphic_states -> force Py_False (neutralize overlay / graphics state detection)
+   - 0x104d740: inspect_system_processes -> NOP blr x8 (skip process inspection)
+   - 0x104d778: inspect_system_windows -> NOP blr x8 (skip window / UI overlay inspection)
 3. Optional: Inject RosModV2UI.dylib via LC_LOAD_DYLIB in client.
 """
 
@@ -51,6 +54,12 @@ CLIENT_PATCHES = (
     (0x104D4E0, bytes.fromhex("e823009120013fd6"), bytes.fromhex("ff0700f9ff7f0039")),
     # anti_cheat_check: blr x8 -> stur xzr, [x29, #-0x10] (zero 8-byte buffer, clean PyString return)
     (0x104CDDC, bytes.fromhex("00013fd6"), bytes.fromhex("bf031ff8")),
+    # check_graphic_states: csel x0, x9, x8, ne -> mov x0, x8 (always select Py_False, hide overlay)
+    (0x104D710, bytes.fromhex("2011889a"), bytes.fromhex("e00308aa")),
+    # inspect_system_processes: blr x8 -> nop (skip process scan)
+    (0x104D740, bytes.fromhex("00013fd6"), NOP),
+    # inspect_system_windows: blr x8 -> nop (skip window / UI overlay scan)
+    (0x104D778, bytes.fromhex("00013fd6"), NOP),
 )
 
 
