@@ -37,6 +37,7 @@ namespace["_pb_silent"](player, enemy_candidates, [], [])
 assert not rotations and namespace["_PB_SIL"]["t"] is None
 
 teammate = Obj(bones={"chest": Obj(x=1, y=2, z=10)})
+namespace["_pb_enemy"] = lambda me, entity: 0 if entity is teammate else 1
 teammates = [(teammate, (50, 60), (50, 40), True, True,
               Obj(x=1, y=0, z=10), 10, 0, 100)]
 namespace["_pb_aim"](player, enemy_candidates, tm_cands=teammates)
@@ -70,3 +71,43 @@ try:
 finally:
     del sys.modules[module_name]
 print("healer aim smoke: teammate-only silent target inside visible camera FOV")
+
+# Revalidation rejects an enemy accidentally present in the teammate list.
+namespace['_pb_enemy'] = lambda *_: 1
+namespace['_pb_silent'](player, [], [], teammates)
+assert namespace['_PB_SIL']['t'] is None
+namespace['_pb_enemy'] = lambda *_: 0
+namespace['_pb_vis'] = lambda *_: 0
+namespace['_pb_silent'](player, [], [], teammates)
+assert namespace['_PB_SIL']['t'] is None
+namespace['_PB_SIL']['t'] = (1, 2, 3)
+config[45] = 0
+config[0] = 0
+namespace['_pb_silent'](player, [], [], teammates)
+assert namespace['_PB_SIL']['t'] is None
+
+helpers = [n for n in tree.body if isinstance(n, ast.FunctionDef) and
+           n.name in {'_pb_wounded', '_pb_trackable', '_pb_squad_member'}]
+h = {'_pb_health': lambda e: (e.hp, 100)}
+exec(compile(ast.Module(body=helpers, type_ignores=[]), str(source), 'exec'), h)
+for wounded in (True, lambda: True):
+    assert h['_pb_trackable'](Obj(isAlive=False, hp=0, isWounded=wounded))
+assert not h['_pb_trackable'](Obj(isAlive=False, hp=0, isWounded=False))
+for roster in ([22], ['22'], [Obj(id=22)], [{'id': '22'}], {'22': Obj()}):
+    assert h['_pb_squad_member'](Obj(validBattleTeammates=roster), Obj(id=22))
+    assert not h['_pb_squad_member'](Obj(validBattleTeammates=roster), Obj(id=23))
+print('healer regression: downed filtering, roster IDs, relation/visibility recheck, stale target clearing passed')
+
+# Remake equipped-weapon ID observed while holding/shooting the healer gun.
+config[45] = 1
+player.dtsCurWeapon = 0
+player.dtsCurRailID = 20050
+for weapon in ({'weaponID': 1011}, Obj(weaponID=1011)):
+    player.dtsWeapon0 = weapon
+    assert namespace['_pb_healer_active'](player, config)
+player.dtsWeapon0 = Obj(weaponID=42)
+assert not namespace['_pb_healer_active'](player, config)
+player.dtsWeapon0 = Obj(weaponID=1011)
+config[45] = 0
+assert not namespace['_pb_healer_active'](player, config)
+print('healer detection: remake 1011 dictionary/object, ordinary gun, disabled toggle passed')

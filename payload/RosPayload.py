@@ -443,7 +443,8 @@ def _pb_healer_active(me, c):
         return False
     wid = (_pb_ar_read(weapon, 'weaponID') or _pb_ar_read(weapon, 'weaponId') or
            _pb_ar_read(weapon, 'itemID'))
-    if wid in (90050, 90205, 90265):
+    # This remake reports equipped healer weaponID 1011 (observed in game).
+    if wid in (1011, 90050, 90205, 90265):
         return True
     if _pb_is_mapping(weapon):
         try: name = str(weapon.get('name', '') or weapon.get('weaponName', '')).lower()
@@ -1545,6 +1546,9 @@ def _pb_silent(me, cands, allc, tm_cands=None):
 
     import time
 
+    _PB_SIL['t'] = None
+    _PB_SIL['tv'] = 0
+
     if not _PB_NRS['sil']:
 
         _PB_SIL['t'] = None
@@ -1577,7 +1581,7 @@ def _pb_silent(me, cands, allc, tm_cands=None):
         rank_best = None
         metrics = c[16:22] if len(c) >= 22 else []
         for e, fs, hs, kn, vis, p, dist, hp, mhp in (tm_cands or []):
-            if not vis or dist / 10.0 > maxd:
+            if e is me or _pb_enemy(me, e) != 0 or not vis or dist / 10.0 > maxd:
                 continue
             fx, fy = _pb_aim_screen(fs, W, H, metrics)
             hx, hy = _pb_aim_screen(hs, W, H, metrics)
@@ -1664,6 +1668,9 @@ def _pb_silent(me, cands, allc, tm_cands=None):
     except Exception:
 
         _PB_SIL['tv'] = 0
+
+    if healer and not _PB_SIL['tv']:
+        return
 
     if healer:
         bw = _pb_boneworld(e, 'chest')
@@ -2053,80 +2060,61 @@ def _pb_team_id(entity):
 
 
 
-def _pb_squad_member(me, entity):
-
+def _pb_wounded(entity):
     try:
-
-        entity_id = int(entity.id)
-
-        if entity_id > 0 and entity_id in getattr(me, 'fixedBattleTeamMateIds', ()):
-
-            return True
-
+        value = getattr(entity, 'isWounded', False)
+        return bool(value() if callable(value) else value)
     except Exception:
+        return False
 
-        entity_id = None
 
+def _pb_trackable(entity):
+    # Downed players may report isAlive=False while still revivable.
+    if _pb_wounded(entity):
+        return True
     try:
-
-        roster = me.validBattleTeammates
-
+        value = getattr(entity, 'isAlive', None)
+        if value is not None:
+            return bool(value() if callable(value) else value)
+        if hasattr(entity, 'hp'):
+            return _pb_health(entity)[0] != 0
     except Exception:
-
-        roster = ()
-
-    names = set()
-
-    for field in ('nickname', 'playerName'):
-
-        try:
-
-            name = getattr(entity, field, None)
-
-            if isinstance(name, (str, unicode)) and name:
-
-                names.add(name)
-
-        except Exception:
-
-            pass
-
-    try:
-
-        for member in roster:
-
-            try:
-
-                member_id = member.get('id') if isinstance(member, dict) else getattr(member, 'id', None)
-
-                if entity_id is not None and member_id is not None and int(member_id) == entity_id:
-
-                    return True
-
-            except Exception:
-
-                pass
-
-            for field in ('nickname', 'playerName'):
-
-                try:
-
-                    name = member.get(field) if isinstance(member, dict) else getattr(member, field, None)
-
-                    if name and name in names:
-
-                        return True
-
-                except Exception:
-
-                    pass
-
-    except Exception:
-
         pass
+    return True
 
+
+def _pb_squad_member(me, entity):
+    try:
+        entity_id = int(entity.id)
+    except Exception:
+        return False
+    if entity_id <= 0:
+        return False
+
+    def matches(value):
+        try:
+            return not isinstance(value, bool) and int(value) == entity_id
+        except Exception:
+            return False
+
+    for field in ('fixedBattleTeamMateIds', 'validBattleTeammates'):
+        try:
+            roster = getattr(me, field, ())
+            if callable(roster):
+                roster = roster()
+            if isinstance(roster, dict):
+                members = list(roster.keys()) + list(roster.values())
+            else:
+                members = list(roster)
+            for member in members:
+                if matches(member):
+                    return True
+                mid = member.get('id') if isinstance(member, dict) else getattr(member, 'id', None)
+                if matches(mid):
+                    return True
+        except Exception:
+            pass
     return False
-
 
 
 def _pb_enemy(me, entity):
@@ -3543,49 +3531,35 @@ def _pb_ar_write(obj, name, val):
 
 
 def _pb_ar_install_ws_hooks():
-
     import sys
-
     ws = sys.modules.get('weapon.WeaponStates')
-
-    if ws is not None and not _PB_AR_STATE['ws_hooked']:
-
-        wreload = getattr(ws, 'WeaponReload', None)
-
-        if wreload is not None:
-
-            orig_enter = getattr(wreload, 'onEnter', None)
-
-            if callable(orig_enter):
-
-                def _hk_enter(self, *a, **kw):
-
-                    _PB_AR_STATE['ws_reloading'] = True
-
-                    _PB_AR_STATE['ws_entered'] = True
-
-                    return orig_enter(self, *a, **kw)
-
-                try: wreload.onEnter = _hk_enter
-
-                except Exception: pass
-
-            orig_leave = getattr(wreload, 'onLeave', None)
-
-            if callable(orig_leave):
-
-                def _hk_leave(self, *a, **kw):
-
-                    _PB_AR_STATE['ws_reloading'] = False
-
-                    return orig_leave(self, *a, **kw)
-
-                try: wreload.onLeave = _hk_leave
-
-                except Exception: pass
-
-        _PB_AR_STATE['ws_hooked'] = True
-
+    cls = getattr(ws, 'WeaponReload', None) if ws else None
+    if cls is None:
+        return
+    # Keep native callbacks intact. Track each state instance separately so a
+    # remote player's reload cannot complete the local weapon's reload.
+    for name, entering in (('onEnter', True), ('onLeave', False)):
+        original = getattr(cls, name, None)
+        if not callable(original) or getattr(original, '_rx_reload_observer', False):
+            continue
+        def wrap(fn, enter):
+            def observer(instance, *args, **kwargs):
+                result = fn(instance, *args, **kwargs)
+                events = _PB_AR_STATE.setdefault('reload_events', {})
+                if enter:
+                    events[id(instance)] = instance
+                else:
+                    events.pop(id(instance), None)
+                return result
+            observer._rx_reload_observer = True
+            return observer
+        try:
+            setattr(cls, name, wrap(original, entering))
+        except Exception:
+            pass
+    _PB_AR_STATE['ws_hooked'] = all(
+        getattr(getattr(cls, n, None), '_rx_reload_observer', False)
+        for n in ('onEnter', 'onLeave'))
 
 
 def _pb_ar_active_slot(me):
@@ -3876,7 +3850,7 @@ def _pb_ar_probe(me):
 
     rail_id = getattr(me, 'dtsCurRailID', None)
 
-    wep_key = (slot, gun_id, rail_id)
+    wep_key = (slot, gun_id, rail_id, id(rail), id(cur_mag))
 
     reload_objs = wep_objs + rails
 
@@ -3886,9 +3860,15 @@ def _pb_ar_probe(me):
 
 def _pb_ar_is_reloading(me, objs):
 
-    if _PB_AR_STATE.get('ws_reloading'):
-
-        return True
+    # Only consume observed native states tied to this weapon/player.
+    identities = {id(x) for x in [me] + list(objs)}
+    for event in list(_PB_AR_STATE.get('reload_events', {}).values()):
+        for name in ('weapon', '_weapon', 'owner', '_owner', 'entity', '_entity'):
+            try:
+                if id(getattr(event, name, None)) in identities:
+                    return True
+            except Exception:
+                pass
 
     try:
 
@@ -4035,6 +4015,10 @@ def _pb_auto_reload(me, c):
         _PB_AR_STATE['reload_seen'] = False
 
         _PB_AR_STATE.pop('native_reserve_available', None)
+        _PB_AR_STATE.pop('reserve_highwater', None)
+        _PB_AR_STATE.pop('magazine_refs', None)
+        _PB_AR_STATE.pop('reload_events', None)
+        _PB_AR_STATE['key'] = None
 
         return
 
@@ -4058,7 +4042,7 @@ def _pb_auto_reload(me, c):
 
     _PB_AR_STATE['valid_gun'] = True
 
-    now = time.time()
+    now = getattr(time, 'monotonic', time.time)()
 
     if _PB_AR_STATE['key'] != wep_key:
 
@@ -4070,7 +4054,7 @@ def _pb_auto_reload(me, c):
 
         if unlim_on and cur_mag is not None:
             initial_reserve = getattr(cur_mag, 'ammo_box_bullet_count', None)
-            _PB_AR_STATE.setdefault('native_reserve_available', {})[wep_key] = (
+            _PB_AR_STATE.setdefault('native_reserve_available', {}).setdefault(wep_key,
                 isinstance(initial_reserve, (int, float)) and initial_reserve > 0)
 
         _PB_AR_STATE['switch_until'] = now + 0.50
@@ -4106,51 +4090,26 @@ def _pb_auto_reload(me, c):
         eff_cap = int(cap)
 
         reserve = getattr(cur_mag, 'ammo_box_bullet_count', None)
-        reserve_key = (gun_id, getattr(me, 'dtsCurRailID', None))
-        reserve_modes = _PB_AR_STATE.setdefault('native_reserve_available', {})
-        if wep_key not in reserve_modes:
-            reserve_modes[wep_key] = isinstance(reserve, (int, float)) and reserve > 0
-        elif reserve == 0:
-            reserve_modes[wep_key] = False
-        zero_reserve_mode = not reserve_modes[wep_key]
-        floors = _PB_AR_STATE.setdefault('reserve_highwater', {})
         if eff_cap > 0 and isinstance(reserve, (int, float)) and not isinstance(reserve, bool) and reserve >= 0:
-            floor = max(floors.get(reserve_key, 0), int(reserve), eff_cap * 5)
-            floors[reserve_key] = floor
+            floor = max(int(reserve), eff_cap * 5)
             if reserve < floor:
-                try: cur_mag.ammo_box_bullet_count = floor
-                except Exception: pass
+                try:
+                    cur_mag.ammo_box_bullet_count = floor
+                except Exception:
+                    _PB_AR_STATE['state'] = 'failed'
+                    return
 
-        # If gun was reloading, check if reload animation completed
-        if eff_cap > 0 and st == 'reloading':
-            elapsed = now - _PB_AR_STATE.get('reload_start', 0.0)
+        # The game alone loads rounds, including individual shotgun shells.
+        # Never synthesize magazine or HUD values on state exit or a timeout.
+        if st == 'reloading':
             reloading_now = _pb_ar_is_reloading(me, objs)
             if reloading_now:
                 _PB_AR_STATE['reload_seen'] = True
-            ready = (elapsed >= 1.75 if zero_reserve_mode else
-                     not reloading_now and (_PB_AR_STATE.get('reload_seen') or
-                                            cur_ammo > 0 or elapsed >= 2.25))
-            if ready:
-                restored = False
-                try:
-                    cur_mag.bullet_count = eff_cap
-                    restored = int(cur_mag.bullet_count) == eff_cap
-                except Exception:
-                    pass
-                if restored:
-                    for t_obj, t_attr, t_idx in (targets or []):
-                        try:
-                            if t_idx is not None:
-                                t_obj[t_idx] = eff_cap
-                            elif t_attr and not (t_obj is cur_mag and t_attr == 'bullet_count'):
-                                setattr(t_obj, t_attr, eff_cap)
-                        except Exception:
-                            continue
-                    cur_ammo = eff_cap
-                    _PB_AR_STATE['state'] = 'idle'
-                    _PB_AR_STATE['reload_seen'] = False
-                else:
-                    _PB_AR_STATE['state'] = 'failed'
+            elif cur_ammo > 0:
+                _PB_AR_STATE['state'] = 'idle'
+                _PB_AR_STATE['reload_seen'] = False
+            elif _PB_AR_STATE.get('reload_seen'):
+                _PB_AR_STATE['state'] = 'failed'
 
     if cur_ammo is None:
         return
@@ -4167,6 +4126,7 @@ def _pb_auto_reload(me, c):
     if _pb_ar_is_reloading(me, objs):
         if st != 'reloading':
             _PB_AR_STATE['state'] = 'reloading'
+            _PB_AR_STATE['reload_ammo'] = cur_ammo
             _PB_AR_STATE['reload_start'] = now
             _PB_AR_STATE['reload_seen'] = True
         return
@@ -4177,10 +4137,12 @@ def _pb_auto_reload(me, c):
 
     if _pb_ar_trigger_reload(me, objs):
         _PB_AR_STATE['state'] = 'reloading'
+        _PB_AR_STATE['reload_ammo'] = cur_ammo
         _PB_AR_STATE['reload_start'] = now
         _PB_AR_STATE['reload_seen'] = False
     else:
-        _PB_AR_STATE['state'] = 'reloading' if unlim_on else 'failed'
+        _PB_AR_STATE['state'] = 'failed'
+        _PB_AR_STATE['reload_ammo'] = cur_ammo
         _PB_AR_STATE['reload_start'] = now
         _PB_AR_STATE['reload_seen'] = False
 
@@ -4358,30 +4320,8 @@ def _pb_esp(g):
 
                 eid = int(getattr(e, 'id', k) or k)
 
-                is_alive = True
-
-                try:
-
-                    if hasattr(e, 'isAlive'):
-
-                        v_alive = e.isAlive
-
-                        is_alive = bool(v_alive() if callable(v_alive) else v_alive)
-
-                    elif hasattr(e, 'hp'):
-
-                        current_hp, unused_max_hp = _pb_health(e)
-
-                        is_alive = current_hp != 0
-
-                except Exception:
-
-                    is_alive = True
-
-                if not is_alive:
-
+                if not _pb_trackable(e):
                     _PB_BMAP.pop(eid, None)
-
                     continue
 
                 live_bone_ids.add(eid)
@@ -4430,13 +4370,7 @@ def _pb_esp(g):
 
                 dist = (dx * dx + dy * dy + dz * dz) ** 0.5
 
-                try:
-
-                    kn = 1 if (callable(getattr(e, 'isWounded', None)) and e.isWounded()) else 0
-
-                except Exception:
-
-                    kn = 0
+                kn = int(_pb_wounded(e))
 
                 bot = 0
 

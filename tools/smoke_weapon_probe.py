@@ -29,7 +29,7 @@ env = {'_PB_GUN_SLOTS': (0, 1, 2, 6, 8, 9),
        '_PB_AR_STATE': {'reserve_highwater': {}}}
 exec(compile(ast.Module(body=[probe], type_ignores=[]), str(source), 'exec'), env)
 key, count, capacity, targets, reload_objs, gun_id, magazine = env['_pb_ar_probe'](player)
-assert key == (1, 202, 202) and count == 0 and capacity == 5
+assert key == (1, 202, 202, id(shot_rail), id(shot_mag)) and count == 0 and capacity == 5
 assert magazine is shot_mag and shotgun in reload_objs and rifle not in reload_objs
 assert all(obj is not rifle and obj is not rifle_rail and obj is not rifle_mag
            for obj, attr, idx in targets)
