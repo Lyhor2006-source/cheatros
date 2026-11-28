@@ -1071,7 +1071,10 @@ void RenderMainMenu() {
                                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
                                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 
-    layout.menuBackdropActive = true;
+    // Keep the menu in the Metal pass. A UIKit blur behind a transparent MTKView
+    // can force expensive live compositing as soon as the gesture opens it.
+    layout.menuBackdropActive = false;
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.055f, 0.075f, 0.105f, 0.96f));
     if (ImGui::Begin("##AnhAhKaNgHahMainWindow", nullptr, winFlags)) {
         ImGui::SetWindowFontScale(scale);
         ImVec2 wp = ImGui::GetWindowPos();
@@ -1188,6 +1191,7 @@ void RenderMainMenu() {
         dl->AddLine(ImVec2(br.x - 12.0f, br.y), ImVec2(br.x, br.y - 12.0f), gripCol, 1.5f);
     }
     ImGui::End();
+    ImGui::PopStyleColor();
 
     ImGui::GetStyle() = savedStyle;
 }
