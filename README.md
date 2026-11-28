@@ -19,3 +19,11 @@ Unlimited Ammo uses owned methods on the selected local magazine: each shot redu
 Healer Aim aligns the camera toward visible teammates when the healer gun is equipped, independently of enemy Aim Assist. It prioritizes downed, injured, then healthy teammates within the camera view and aim range, aiming at the chest. Healer shots use native firing; enemy ray redirection is disabled while healer assistance is active. Torso visibility is queried at the actual chest aim point when native geometry queries are available. Target selection retains an eligible equal-priority teammate through small screen movements and releases it for obstruction, range, or a higher-priority target. Status reports selected targets and camera rotation.
 
 Fast Parachute scans in the background while disabled and remembers the original target and adjacent marker. When enabled during a match, it validates the cached address and marker before patching; if validation fails, it stays enabled and retries every two seconds. It reports active only after a patch applies.
+
+## Aim modes
+
+Camera Aim supports Always, Scoped, Hip Firing (firing with scope closed), and Scoped or Firing (either action). Trigger detection includes the equipped gun rail. Camera target selection remains within the configured FOV/range and uses smoothing independent of update frequency. Silent Aim and 360 Silent Aim run independently of camera aiming, share those trigger rules, and use their own Silent Aim Distance. 360 takes priority if both silent switches are on. Healer assistance retains native projectiles and bypasses enemy ray redirection.
+
+No Recoil uses the legacy native double-value group scan (`1.0`, `30000000.0`, target index 0, window 512) and restores owned patches when disabled. It retries in the background while recoil data is unavailable; no generic Python recoil-field override is enabled.
+
+Regression checks: `python tools/smoke_aim.py`, `python tools/smoke_silent_aim.py`, `python tools/smoke_healer_aim.py`, and `python tools/smoke_local_ammo_cycle.py`. Device behavior and server acceptance require in-game verification.

@@ -31,7 +31,7 @@ enum class AimTriggerMode : int {
     Always = 0,
     Scoped = 1,
     Firing = 2,
-    ScopedAndFiring = 3,
+    ScopedOrFiring = 3,
 };
 
 enum class TargetBone : int {

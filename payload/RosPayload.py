@@ -388,6 +388,7 @@ def _pb_aimcfg():
 
 _PB_TRG = {'aim': 0, 'selected': 0, 'rotated': 0}
 _PB_HEAL = {'target': None, 'owner': None}
+_PB_AIM = {'target': None, 'owner': None, 'key': None, 'last': None}
 
 def _pb_flag(objects, names):
 
@@ -416,6 +417,41 @@ def _pb_flag(objects, names):
                 pass
 
     return False
+
+def _pb_aim_trigger(me, camera, mode):
+    mode = int(mode)
+    if mode == 0:
+        return True
+    scoped = _pb_flag((camera, me), ('_gunSightOpened', 'isGunSightOpened', 'gunSightOpened', 'isScoped'))
+    firing = _pb_flag((me, camera), ('isShooting', 'fireBtnPressed', 'isFiring', 'isAttacking', '_isFiring'))
+    # Probe returns only the equipped weapon and rail; holstered rails cannot
+    # activate the trigger through a stale firing flag.
+    try:
+        result = _pb_ar_probe(me)
+        objects = result[4] if result and result[0] is not None else ()
+        if not firing:
+            firing = _pb_flag(objects, ('isShooting', 'fireBtnPressed', 'isFiring', 'isAttacking', '_isFiring'))
+        if not scoped:
+            scoped = _pb_flag(objects, ('_gunSightOpened', 'isGunSightOpened', 'gunSightOpened', 'isScoped'))
+    except Exception:
+        pass
+    _PB_TRG.update(scoped=int(scoped), firing=int(firing))
+    if mode == 1:
+        return scoped
+    if mode == 2:
+        return firing and not scoped
+    if mode == 3:
+        return firing or scoped
+    return False
+
+
+def _pb_aim_response(smoothness, dt):
+    import math
+    smoothness = max(1.0, min(20.0, float(smoothness)))
+    if smoothness <= 1.0:
+        return 1.0
+    return 1.0 - math.exp(-max(0.001, min(0.1, dt)) * 50.0 / smoothness)
+
 
 def _pb_aim_screen(pt, W, H, metrics):
 
@@ -510,22 +546,25 @@ def _pb_healer_visible(me, entity, origin, point, head_visible=False):
 
 def _pb_aim(me, cands, allc=None, tm_cands=None):
 
-    import math
+    import math, time
 
     _PB_TRG['aim'] = 0; _PB_TRG['selected'] = 0; _PB_TRG['rotated'] = 0
 
     c = _pb_aimcfg()
 
     if not c or len(c) < 11:
-
+        _PB_AIM.update(target=None, owner=None, key=None, last=None)
         return
 
     use_healer_aim = _pb_healer_active(me, c)
     if not use_healer_aim or _PB_HEAL.get('owner') is not me:
         _PB_HEAL.update(target=None, owner=me if use_healer_aim else None)
 
-    if not use_healer_aim and c[0] < 0.5:
-
+    if use_healer_aim or c[0] < 0.5 or _PB_AIM.get('owner') is not me:
+        _PB_AIM.update(target=None, owner=None, key=None, last=None)
+    if not use_healer_aim and (c[0] < 0.5 or
+            (len(c) > 13 and c[13] >= 0.5) or (len(c) > 14 and c[14] >= 0.5)):
+        _PB_AIM.update(target=None, owner=None, key=None, last=None)
         return
 
     en, mode, fov, smooth, power, vischk, ignkn, bone, W, H, maxd = c[:11]
@@ -538,24 +577,14 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
 
         return
 
-    scoped = _pb_flag((cc, me), ('_gunSightOpened', 'isGunSightOpened', 'gunSightOpened', 'isScoped'))
-
-    firing = _pb_flag((me, cc), ('isShooting', 'fireBtnPressed', 'isFiring', 'isAttacking', '_isFiring'))
-
     if not use_healer_aim:
-        m = int(mode)
-
-        if m == 1 and not scoped:
-
+        if not _pb_aim_trigger(me, cc, mode):
+            _PB_AIM.update(target=None, key=None, last=None)
             return
-
-        if m == 2 and (not firing or scoped):
-
-            return
-
-        if m >= 3 and not (scoped and firing):
-
-            return
+        weapon_key = (_pb_ar_active_slot(me), getattr(me, 'dtsCurRailID', None), int(bone), int(mode))
+        if _PB_AIM.get('key') != weapon_key:
+            _PB_AIM.update(target=None, last=None, key=weapon_key)
+        _PB_AIM['owner'] = me
 
     cx = W * 0.5; cy = H * 0.5
 
@@ -605,35 +634,40 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
         else:
             _PB_HEAL['target'] = None
     else:
-        for (e, fs, hs, kn, vis, p, dist) in cands:
-
-            if _pb_enemy(me, e) != 1:
-
+        eligible = []
+        aim_key = ['head', 'chest', 'pelvis'][min(2, max(0, int(bone)))]
+        for e, fs, hs, kn, vis, p, dist in cands:
+            if _pb_enemy(me, e) != 1 or (ignkn >= 0.5 and kn) or dist / 10.0 > maxd:
                 continue
-
-            if ignkn >= 0.5 and kn:
-
-                continue
-
-            if vischk >= 0.5 and not vis:
-
-                continue
-
-            if dist / 10.0 > maxd:
-
-                continue
-
             fx, fy = _pb_aim_screen(fs, W, H, metrics)
-
             hx, hy = _pb_aim_screen(hs, W, H, metrics)
-
-            ax = hx; ay = hy + fr * (fy - hy)
-
+            ax, ay = hx, hy + fr * (fy - hy)
             d = ((ax - cx) ** 2 + (ay - cy) ** 2) ** 0.5
-
-            if d < bd:
-
-                bd = d; best = (e, p)
+            if not (0.0 <= ax <= W and 0.0 <= ay <= H and d <= fov):
+                continue
+            try:
+                point = _pb_boneworld(e, aim_key)
+            except Exception:
+                point = None
+            visible = vis
+            if vischk >= 0.5:
+                if point is not None:
+                    visible = _pb_healer_visible(me, e, cam, point, vis)
+                if not visible:
+                    continue
+            eligible.append((d, e, p, point, visible))
+        if eligible:
+            chosen = min(eligible, key=lambda item: item[0])
+            for item in eligible:
+                if (getattr(item[1], 'id', id(item[1])) == _PB_AIM.get('target') and
+                        item[0] <= chosen[0] + min(16.0, fov * 0.1)):
+                    chosen = item
+                    break
+            d, e, p, point, visible = chosen
+            best = (e, p, point, visible)
+            _PB_AIM['target'] = getattr(e, 'id', id(e))
+        else:
+            _PB_AIM.update(target=None, last=None)
 
     if best is None:
 
@@ -646,20 +680,21 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
     try:
 
         _PB_TRG['aim'] = (_pb_healer_visible(me, e, cam, best[2], best[3])
-                          if use_healer_aim else _pb_vis(me, e, cam))
+                          if (use_healer_aim or (vischk >= 0.5 and best[2] is not None))
+                          else _pb_vis(me, e, cam))
 
     except Exception:
 
-        _PB_TRG['aim'] = 0 if use_healer_aim else 1
+        _PB_TRG['aim'] = 0 if (use_healer_aim or vischk >= 0.5) else 1
 
 
 
-    if use_healer_aim and not _PB_TRG['aim']:
+    if (use_healer_aim or vischk >= 0.5) and not _PB_TRG['aim']:
         return
 
     key = 'chest' if use_healer_aim else ['head', 'chest', 'pelvis'][min(2, max(0, int(bone)))]
 
-    target = best[2] if use_healer_aim else _pb_boneworld(e, key)
+    target = best[2]
 
     if target is not None:
 
@@ -736,6 +771,13 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
 
             assist_ratio = max(0.10, min(1.0, raw_p))
 
+    if not use_healer_aim:
+        now = getattr(time, 'monotonic', time.time)()
+        previous = _PB_AIM.get('last')
+        dt = now - previous if previous is not None else 0.02
+        _PB_AIM['last'] = now
+        assist_ratio *= _pb_aim_response(smooth, dt)
+
     factor_x = abs(float(getattr(cc, '_rotate_factor_x', 0.2) or 0.2))
 
     factor_y = abs(float(getattr(cc, '_rotate_factor_y', factor_x) or factor_x))
@@ -744,7 +786,7 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
 
 
 
-    # Pure percentage-based aim assist: exactly assist_ratio toward target
+    # Apply aim power and smoothing to the shortest camera-angle error.
 
     ux = (math.degrees(yaw_error) / factor_x) * assist_ratio
 
@@ -1608,10 +1650,14 @@ def _pb_silent(me, cands, allc, tm_cands=None):
         return
 
     # Healer uses native projectiles after teammate camera alignment.
-    if _pb_healer_active(me, c) or c[0] < 0.5:
+    if (_pb_healer_active(me, c) or
+            not (c[13] >= 0.5 or (len(c) > 14 and c[14] >= 0.5))):
+        return
+    if not _pb_aim_trigger(me, getattr(me, 'camCtrlComp', None), c[1]):
         return
 
     fov, vischk, ignkn, bone, W, H, maxd = c[2], c[5], c[6], c[7], c[8], c[9], c[10]
+    maxd = max(10.0, min(1000.0, c[46] if len(c) > 46 else c[10]))
 
     s360 = len(c) >= 15 and c[14] >= 0.5
 
@@ -1696,6 +1742,9 @@ def _pb_silent(me, cands, allc, tm_cands=None):
     except Exception:
 
         _PB_SIL['tv'] = 0
+
+    if vischk >= 0.5 and not _PB_SIL['tv']:
+        return
 
     if int(bone) == 0:
 

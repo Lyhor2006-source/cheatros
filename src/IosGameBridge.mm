@@ -58,6 +58,7 @@ public:
             ctx.layout.engineStarted ||
             ctx.esp.masterEsp ||
             ctx.aim.masterAim ||
+            ctx.aim.silentAim || ctx.aim.silent360 ||
             ctx.esp.ipadView ||
             MemoryCheats::GetFlyEnabled() ||
             MemoryCheats::GetUndergroundEnabled() ||
@@ -399,7 +400,7 @@ private:
         char buf[1024];
         std::snprintf(
             buf, sizeof(buf),
-            "%d %d %.2f %.2f %.2f %d %d %d %.2f %.2f %.2f 0 0 0 0 1 %.2f %.2f 0 0 %.2f %.2f 0 %.2f 1 %d %d %d %.2f %d %.2f 0 %d 0 0 0 %d %d 0 0 0.00 0 0 %d %d %d\n",
+            "%d %d %.2f %.2f %.2f %d %d %d %.2f %.2f %.2f 0 0 %d %d 1 %.2f %.2f 0 0 %.2f %.2f 0 %.2f 1 %d %d %d %.2f %d %.2f 0 %d 0 0 0 %d %d 0 0 0.00 0 0 %d %d %d %.2f\n",
             aim.masterAim ? 1 : 0,                                  // c[0]
             aim.triggerMode,                                        // c[1]
             aim.fovRadiusPx,                                        // c[2]
@@ -411,6 +412,8 @@ private:
             lastW_,                                                 // c[8]
             lastH_,                                                 // c[9]
             aim.aimRangeMeters,                                     // c[10]
+            aim.silentAim ? 1 : 0,                                  // c[13]
+            aim.silent360 ? 1 : 0,                                  // c[14]
             fbW, fbH,                                               // c[16..17]
             fbW, fbH,                                               // c[20..21]
             std::clamp(aim.aimRangeMeters, 5.0f, 500.0f),           // c[23]
@@ -425,7 +428,8 @@ private:
             camWideOn,                                              // c[37]
             autoReloadOn,                                           // c[43]
             unlimitedAmmoOn,                                        // c[44]
-            healerAimOn);                                           // c[45]
+            healerAimOn,                                            // c[45]
+            std::clamp(aim.silentDistMeters, 10.0f, 1000.0f));          // c[46]
 
         const std::string tmpPath = cfgPath_ + ".new";
         FILE* fp = std::fopen(tmpPath.c_str(), "wb");

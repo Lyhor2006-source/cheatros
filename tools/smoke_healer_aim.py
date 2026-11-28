@@ -21,7 +21,7 @@ player = Obj(id=1, teamID=1, dtsCurWeapon=0, dtsWeapon0={'weaponID': 1011},
              dtsCurRailID=20011, camCtrlComp=camera,
              position=Obj(x=0,y=0,z=0), getViewPos=lambda: Obj(x=0,y=0,z=0),
              getViewDirection=lambda: Obj(x=0,y=0,z=1))
-namespace = dict(_PB_HEAL=dict(target=None,owner=None), _pb_space=lambda: None, _PB_TRG={}, _PB_NRS=dict(sil=True,cls=Obj(),nr=False,ns=False),
+namespace = dict(_PB_AIM=dict(target=None,owner=None,key=None,last=None), _PB_HEAL=dict(target=None,owner=None), _pb_space=lambda: None, _PB_TRG={}, _PB_NRS=dict(sil=True,cls=Obj(),nr=False,ns=False),
                  _PB_SIL=dict(t=(1,2,3),tv=1), unicode=str,
                  _pb_aimcfg=lambda: config, _pb_vis=lambda *_: 1,
                  _pb_aim_screen=lambda point,*_: point,

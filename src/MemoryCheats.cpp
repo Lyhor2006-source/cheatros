@@ -672,18 +672,13 @@ void ExecuteTask(const WorkerTask& task) {
             break;
         }
         case MF::NoRecoil: {
-            auto hits = MachMemory::ProximityScan(
+            // Legacy dylib: two double search terms, target index 0, 512-byte
+            // group window; replace the selected 1.0 with an eight-byte zero.
+            auto hits = MachMemory::GroupScan(
                 regions,
-                MachMemory::SearchItem::Double(30000000.0),
-                MachMemory::SearchItem::Double(1.0),
-                512, 10);
-            if (hits.empty()) {
-                hits = MachMemory::GroupScan(
-                    regions,
-                    {MachMemory::SearchItem::Double(1.0),
-                     MachMemory::SearchItem::Double(30000000.0)},
-                    0, 512, 10, false);
-            }
+                {MachMemory::SearchItem::Double(1.0),
+                 MachMemory::SearchItem::Double(30000000.0)},
+                0, 512, 64, false);
             matched = hits.size();
             applied = ApplyDoubleToTargets(newPatches, hits, 0.0);
             break;
@@ -829,8 +824,7 @@ void ExecuteTask(const WorkerTask& task) {
          task.feature == MF::NoFallDamage ||
          task.feature == MF::NoGrass ||
          task.feature == MF::IpadView ||
-         task.feature == MF::ClearFog ||
-         task.feature == MF::NoRecoil);
+         task.feature == MF::ClearFog);
 
     std::lock_guard<std::mutex> lock(gStateMutex);
     auto& st = gFeatures[idx];
@@ -847,6 +841,8 @@ void ExecuteTask(const WorkerTask& task) {
         SetResultLocked(task.feature, true, true, false, detail);
     } else if (task.feature == MF::FastParachute && matched == 0) {
         SetResultLocked(task.feature, true, false, false, "Waiting for parachute memory");
+    } else if (task.feature == MF::NoRecoil && matched == 0) {
+        SetResultLocked(task.feature, true, false, false, "Waiting for recoil data (enter match)");
     } else if (hasPythonFallback) {
         SetResultLocked(task.feature, true, true, false, detail.empty() ? "ACTIVE (BigWorld)" : detail);
     } else if (matched > 0) {
@@ -1134,6 +1130,11 @@ void Tick() {
                 retries.push_back(WorkerTask{
                     IosUIBridge::MemoryFeature::SpeedHack, true,
                     gSpeedMultiplier.load(std::memory_order_relaxed), true});
+            }
+            const auto& recoil = gFeatures[static_cast<size_t>(IosUIBridge::MemoryFeature::NoRecoil)];
+            if (recoil.enabled && !recoil.pending && recoil.patches.Count() == 0) {
+                retries.push_back(WorkerTask{
+                    IosUIBridge::MemoryFeature::NoRecoil, true, 1.0f, true});
             }
             const auto& fp = gFeatures[static_cast<size_t>(IosUIBridge::MemoryFeature::FastParachute)];
             if (fp.enabled && !fp.pending && fp.patches.Count() == 0) {

@@ -736,7 +736,7 @@ void RenderFeatureRow(IosUIBridge::MemoryFeature feature, const char* customLabe
         badge = "Error";
         badgeCol = IM_COL32(255, 80, 90, 255);
     } else if (st.enabled) {
-        badge = "Active";
+        badge = st.active ? "Active" : "Enabled";
         badgeCol = IM_COL32(70, 221, 225, 255);
     }
 
@@ -770,7 +770,7 @@ void RenderFeatureToggle(const char* label, bool* localState, IosUIBridge::Memor
         badge = "Error";
         badgeCol = IM_COL32(255, 80, 90, 255);
     } else if (st.enabled) {
-        badge = "Active";
+        badge = st.active ? "Active" : "Enabled";
         badgeCol = IM_COL32(70, 221, 225, 255);
     }
     ImGui::BeginDisabled(st.pending);
@@ -851,7 +851,7 @@ void RenderAimTab() {
         ImGui::TableNextColumn();
         BeginCard("##aim_master", "AIM ASSIST", 3, false);
         ToggleSwitch("Master Aim", &aim.masterAim, nullptr, IM_COL32(175, 180, 195, 255));
-        static const char* kTriggers[] = {"Trigger: Always", "Trigger: Scoped", "Trigger: Firing", "Trigger: Scoped & Firing"};
+        static const char* kTriggers[] = {"Trigger: Always", "Trigger: Scoped", "Trigger: Hip Firing", "Trigger: Scoped or Firing"};
         LabeledCombo("Trigger Mode", "##aim_trigger", &aim.triggerMode, kTriggers, 4);
         EndCard();
 
@@ -871,6 +871,18 @@ void RenderAimTab() {
         ToggleSwitch("FOV Circle", &aim.showFovCircle, nullptr, IM_COL32(175, 180, 195, 255));
         static const char* kBones[] = {"Bone: Head", "Bone: Chest", "Bone: Pelvis"};
         LabeledCombo("Target Bone", "##aim_bone", &aim.targetBone, kBones, 3);
+        EndCard();
+        BeginCard("##aim_silent", "SILENT AIM", 3, false);
+        ToggleSwitch("Silent Aim", &aim.silentAim, nullptr, IM_COL32(175, 180, 195, 255));
+        ToggleSwitch("360 Silent Aim", &aim.silent360, nullptr, IM_COL32(175, 180, 195, 255));
+        LabeledSlider("##silent_dist", "Silent Aim Distance", &aim.silentDistMeters, 10.0f, 1000.0f, "%.0fm");
+        EndCard();
+        BeginCard("##aim_weapon", "WEAPON CONTROL", 5, false);
+        RenderFeatureRow(IosUIBridge::MemoryFeature::NoRecoil, "No Recoil");
+        if (auto* backend = IosUIBridge::GetContext().backend) {
+            const auto state = backend->GetMemoryFeatureStatus(IosUIBridge::MemoryFeature::NoRecoil);
+            if (!state.detail.empty()) ImGui::TextWrapped("%s", state.detail.c_str());
+        }
         EndCard();
         ImGui::EndTable();
     }
