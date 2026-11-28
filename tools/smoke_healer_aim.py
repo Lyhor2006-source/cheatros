@@ -1,113 +1,84 @@
-"""Exercise healer-only silent targeting without a game runtime."""
+"""Verify healer teammate camera alignment without redirecting native shots."""
 import ast
-import sys
 from pathlib import Path
 from types import SimpleNamespace as Obj
 
-source = Path(__file__).resolve().parents[1] / "payload" / "RosPayload.py"
-tree = ast.parse(source.read_text(encoding="utf-8"))
-names = {"_pb_healer_active", "_pb_aim", "_pb_silent", "_pb_nrs_install"}
+source = Path(__file__).resolve().parents[1] / 'payload' / 'RosPayload.py'
+tree = ast.parse(source.read_text())
+names = {'_pb_healer_active', '_pb_aim', '_pb_silent', '_pb_nrs_tick', '_pb_flag',
+         '_pb_enemy', '_pb_team_id', '_pb_squad_member', '_pb_wounded', '_pb_trackable'}
 functions = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
 config = [0.0] * 46
-config[2] = 30.0
-config[8:12] = [100.0, 100.0, 100.0, 100.0]
-config[11] = 0.0  # Reserved by the native writer; range is c[10].
-config[45] = 1.0
-namespace = {"_PB_TRG": {}, "_PB_NRS": {"sil": True}, "_PB_SIL": {"t": None, "tv": 0},
-             "_pb_aimcfg": lambda: config, "_pb_vis": lambda *_: 1,
-             "_pb_aim_screen": lambda point, *_: point,
-             "_pb_ar_read": lambda obj, name: obj.get(name) if isinstance(obj, dict) else getattr(obj, name, None),
-             "_pb_is_mapping": lambda obj: isinstance(obj, dict),
-             "_pb_enemy": lambda *_: (_ for _ in ()).throw(AssertionError("enemy selected")),
-             "_pb_boneworld": lambda entity, bone: entity.bones[bone]}
-exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), "exec"), namespace)
-
-rotations = []
-camera = Obj(onRotateCameraFromUser=lambda *args: rotations.append(args))
-player = Obj(dtsCurRailID=90050, camCtrlComp=camera, position=Obj(x=0, y=0, z=0),
-             getViewPos=lambda: Obj(x=0, y=0, z=0))
-assert namespace["_pb_healer_active"](player, config)
-player.dtsCurRailID = 20050
-player.dtsCurWeapon = 0
-player.dtsWeapon0 = {'weaponID': 90050}
-assert namespace["_pb_healer_active"](player, config)
-enemy_candidates = [(Obj(), (40, 40), (40, 20), False, True, None, 10)]
-namespace["_pb_aim"](player, enemy_candidates, tm_cands=[])
-namespace["_pb_silent"](player, enemy_candidates, [], [])
-assert not rotations and namespace["_PB_SIL"]["t"] is None
-
-teammate = Obj(bones={"chest": Obj(x=1, y=2, z=10)})
-namespace["_pb_enemy"] = lambda me, entity: 0 if entity is teammate else 1
-teammates = [(teammate, (50, 60), (50, 40), True, True,
-              Obj(x=1, y=0, z=10), 10, 0, 100)]
-namespace["_pb_aim"](player, enemy_candidates, tm_cands=teammates)
-namespace["_pb_silent"](player, enemy_candidates, [], teammates)
-assert not rotations and namespace["_PB_SIL"]["t"] == (1, 2, 10)
-for feet, head, visible in [((50, 60), (50, 40), False),
-                            ((150, 60), (150, 40), True)]:
-    candidate = [(teammate, feet, head, True, visible,
-                  Obj(x=1, y=0, z=10), 10, 0, 100)]
-    namespace["_pb_silent"](player, enemy_candidates, [], candidate)
-    assert namespace["_PB_SIL"]["t"] is None
-wide_camera_candidate = [(teammate, (95, 60), (95, 40), True, True,
-                          Obj(x=1, y=0, z=10), 10, 0, 100)]
-namespace["_pb_silent"](player, enemy_candidates, [], wide_camera_candidate)
-assert namespace["_PB_SIL"]["t"] == (1, 2, 10)
-class MechanicalEvaluator:
-    def getRayTrajectory(self):
-        return []
-
-module_name = "healer_smoke_mechanical_evaluator"
-sys.modules[module_name] = Obj(MechanicalEvaluator=MechanicalEvaluator)
-def wrap_ray(original):
-    def wrapped(self):
-        return original(self)
-    return wrapped
-namespace["_pb_wray"] = wrap_ray
-try:
-    namespace["_pb_nrs_install"]()
-    assert namespace["_PB_NRS"]["cls"] is MechanicalEvaluator
-    assert MechanicalEvaluator.getRayTrajectory._pb_silent_wrapped
-finally:
-    del sys.modules[module_name]
-print("healer aim smoke: teammate-only silent target inside visible camera FOV")
-
-# Revalidation rejects an enemy accidentally present in the teammate list.
-namespace['_pb_enemy'] = lambda *_: 1
-namespace['_pb_silent'](player, [], [], teammates)
-assert namespace['_PB_SIL']['t'] is None
-namespace['_pb_enemy'] = lambda *_: 0
-namespace['_pb_vis'] = lambda *_: 0
-namespace['_pb_silent'](player, [], [], teammates)
-assert namespace['_PB_SIL']['t'] is None
-namespace['_PB_SIL']['t'] = (1, 2, 3)
-config[45] = 0
-config[0] = 0
-namespace['_pb_silent'](player, [], [], teammates)
-assert namespace['_PB_SIL']['t'] is None
-
-helpers = [n for n in tree.body if isinstance(n, ast.FunctionDef) and
-           n.name in {'_pb_wounded', '_pb_trackable', '_pb_squad_member'}]
-h = {'_pb_health': lambda e: (e.hp, 100)}
-exec(compile(ast.Module(body=helpers, type_ignores=[]), str(source), 'exec'), h)
-for wounded in (True, lambda: True):
-    assert h['_pb_trackable'](Obj(isAlive=False, hp=0, isWounded=wounded))
-assert not h['_pb_trackable'](Obj(isAlive=False, hp=0, isWounded=False))
-for roster in ([22], ['22'], [Obj(id=22)], [{'id': '22'}], {'22': Obj()}):
-    assert h['_pb_squad_member'](Obj(validBattleTeammates=roster), Obj(id=22))
-    assert not h['_pb_squad_member'](Obj(validBattleTeammates=roster), Obj(id=23))
-print('healer regression: downed filtering, roster IDs, relation/visibility recheck, stale target clearing passed')
-
-# Remake equipped-weapon ID observed while holding/shooting the healer gun.
+config[1] = 3  # Enemy scoped+firing mode must not disable healer assistance.
+config[2] = 30
+config[8:11] = [100, 100, 100]
+config[13:15] = [1, 1]  # Enemy ray modes must not redirect healer shots.
 config[45] = 1
-player.dtsCurWeapon = 0
-player.dtsCurRailID = 20050
-for weapon in ({'weaponID': 1011}, Obj(weaponID=1011)):
+rotations = []
+camera = Obj(onRotateCameraFromUser=lambda value: rotations.append(value))
+player = Obj(id=1, teamID=1, dtsCurWeapon=0, dtsWeapon0={'weaponID': 1011},
+             dtsCurRailID=20011, camCtrlComp=camera,
+             position=Obj(x=0,y=0,z=0), getViewPos=lambda: Obj(x=0,y=0,z=0),
+             getViewDirection=lambda: Obj(x=0,y=0,z=1))
+namespace = dict(_PB_TRG={}, _PB_NRS=dict(sil=True,cls=Obj(),nr=False,ns=False),
+                 _PB_SIL=dict(t=(1,2,3),tv=1), unicode=str,
+                 _pb_aimcfg=lambda: config, _pb_vis=lambda *_: 1,
+                 _pb_aim_screen=lambda point,*_: point,
+                 _pb_ar_read=lambda obj,name: obj.get(name) if isinstance(obj,dict) else getattr(obj,name,None),
+                 _pb_is_mapping=lambda obj: isinstance(obj,dict),
+                 _pb_boneworld=lambda entity,bone: entity.bones.get(bone),
+                 _pb_health=lambda e: (e.hp,100))
+exec(compile(ast.Module(body=functions,type_ignores=[]),str(source),'exec'),namespace)
+aim = namespace['_pb_aim']
+silent = namespace['_pb_silent']
+injured = Obj(id=2,teamID=1,bones={'chest':Obj(x=1,y=2,z=10)})
+downed = Obj(id=4,teamID=1,bones={'chest':Obj(x=-1,y=2,z=10)})
+enemy = Obj(id=3,teamID=2,bones={'chest':Obj(x=-5,y=2,z=10)})
+def candidate(entity,feet=(50,60),head=(50,40),knocked=False,visible=True,dist=10,hp=50):
+    return (entity,feet,head,knocked,visible,Obj(x=0,y=0,z=10),dist,hp,100)
+def check(rows,should_rotate):
+    rotations.clear()
+    aim(player,[(enemy,(50,60),(50,40),False,True,Obj(x=0,y=0,z=10),10)],tm_cands=rows)
+    assert bool(rotations) == should_rotate, namespace['_PB_TRG']
+    if should_rotate:
+        assert namespace['_PB_TRG']['selected'] == 1 and namespace['_PB_TRG']['rotated'] == 1
+
+check([],False)
+check([candidate(injured)],True)
+assert rotations[0][0] > 0
+check([candidate(injured),candidate(downed,knocked=True,hp=0)],True)
+assert rotations[0][0] < 0  # Downed teammate takes priority.
+check([candidate(enemy)],False)  # Reject an enemy in a malformed teammate list.
+check([candidate(injured,visible=False)],False)
+check([candidate(injured,feet=(150,60),head=(150,40))],False)
+check([candidate(injured,dist=1001)],False)
+namespace['_pb_vis'] = lambda *_: 0
+check([candidate(injured)],False)  # Final visibility changed after candidate collection.
+namespace['_pb_vis'] = lambda *_: 1
+check([candidate(injured,feet=(95,60),head=(95,40))],True)
+# Native healer shots must not be rewritten by either enemy ray mode.
+namespace['_PB_NRS']['sil'] = True
+silent(player,[],[],[candidate(injured)])
+assert namespace['_PB_SIL']['t'] is None
+namespace['_pb_nrs_tick'](player)
+assert not namespace['_PB_NRS']['sil']
+for weapon in ({'weaponID':1011},Obj(weaponID=1011),{'weaponID':90050}):
     player.dtsWeapon0 = weapon
-    assert namespace['_pb_healer_active'](player, config)
-player.dtsWeapon0 = Obj(weaponID=42)
-assert not namespace['_pb_healer_active'](player, config)
-player.dtsWeapon0 = Obj(weaponID=1011)
+    assert namespace['_pb_healer_active'](player,config)
+    check([candidate(injured)],True)
 config[45] = 0
-assert not namespace['_pb_healer_active'](player, config)
-print('healer detection: remake 1011 dictionary/object, ordinary gun, disabled toggle passed')
+check([candidate(injured)],False)
+config[45] = 1
+player.dtsWeapon0 = {'weaponID':42}
+assert not namespace['_pb_healer_active'](player,config)
+check([candidate(injured)],False)
+namespace['_pb_nrs_tick'](player)
+assert namespace['_PB_NRS']['sil']  # Ordinary weapon's configured mode is preserved.
+# Candidate collection retains revivable players and supports roster ID formats.
+for wounded in (True,lambda:True):
+    assert namespace['_pb_trackable'](Obj(isAlive=False,hp=0,isWounded=wounded))
+assert not namespace['_pb_trackable'](Obj(isAlive=False,hp=0,isWounded=False))
+for roster in ([22],['22'],[Obj(id=22)],[{'id':'22'}],{'22':Obj()}):
+    assert namespace['_pb_squad_member'](Obj(validBattleTeammates=roster),Obj(id=22))
+    assert not namespace['_pb_squad_member'](Obj(validBattleTeammates=roster),Obj(id=23))
+print('healer camera: native firing preserved, teammate-only rotation, downed priority, visibility/range, IDs and toggle isolation passed')

@@ -470,34 +470,7 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
 
         return
 
-    # Healer uses the ray hook, leaving camera rotation and enemy aim untouched.
-    if _pb_healer_active(me, c):
-        return
-
-    healer_aim_on = bool(len(c) > 45 and c[45] >= 0.5)
-
-    # Check if player is holding Healer Gun (Adrenaline/Hormone Gun, ID 90050)
-    is_healer = False
-    try:
-        cur_rail = getattr(me, 'dtsCurRailID', None)
-        if cur_rail == 90050:
-            is_healer = True
-        else:
-            cur_w = getattr(me, 'dtsCurWeapon', None)
-            if cur_w is not None:
-                w_obj = getattr(me, 'dtsWeapon%d' % cur_w, None)
-                if w_obj is not None:
-                    wid = getattr(w_obj, 'weaponID', None) or getattr(w_obj, 'weaponId', None) or getattr(w_obj, 'itemID', None)
-                    if wid in (90050, 90205, 90265):
-                        is_healer = True
-                    else:
-                        wn = str(getattr(w_obj, 'name', '') or getattr(w_obj, 'weaponName', '')).lower()
-                        if 'healer' in wn or 'shenshang' in wn:
-                            is_healer = True
-    except Exception:
-        pass
-
-    use_healer_aim = is_healer and healer_aim_on
+    use_healer_aim = _pb_healer_active(me, c)
 
     if not use_healer_aim and c[0] < 0.5:
 
@@ -560,7 +533,7 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
                 continue
             if tdist / 10.0 > maxd:
                 continue
-            if vischk >= 0.5 and not tvis:
+            if te is me or _pb_enemy(me, te) != 0 or not tvis:
                 continue
             td_screen = ((tax - cx) ** 2 + (tay - cy) ** 2) ** 0.5
             # Rank 0: knocked (revive!), Rank 1: injured (heal!), Rank 2: full hp (boost speed!)
@@ -613,9 +586,12 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
 
     except Exception:
 
-        _PB_TRG['aim'] = 1
+        _PB_TRG['aim'] = 0 if use_healer_aim else 1
 
 
+
+    if use_healer_aim and not _PB_TRG['aim']:
+        return
 
     key = 'chest' if use_healer_aim else ['head', 'chest', 'pelvis'][min(2, max(0, int(bone)))]
 
@@ -1567,8 +1543,8 @@ def _pb_silent(me, cands, allc, tm_cands=None):
 
         return
 
-    healer = _pb_healer_active(me, c)
-    if not healer and c[0] < 0.5:
+    # Healer uses native projectiles after teammate camera alignment.
+    if _pb_healer_active(me, c) or c[0] < 0.5:
         return
 
     fov, vischk, ignkn, bone, W, H, maxd = c[2], c[5], c[6], c[7], c[8], c[9], c[10]
@@ -1581,23 +1557,7 @@ def _pb_silent(me, cands, allc, tm_cands=None):
 
     best = None; bd = fov
 
-    if healer:
-        rank_best = None
-        metrics = c[16:22] if len(c) >= 22 else []
-        for e, fs, hs, kn, vis, p, dist, hp, mhp in (tm_cands or []):
-            if e is me or _pb_enemy(me, e) != 0 or not vis or dist / 10.0 > maxd:
-                continue
-            fx, fy = _pb_aim_screen(fs, W, H, metrics)
-            hx, hy = _pb_aim_screen(hs, W, H, metrics)
-            ax, ay = hx, hy + 0.35 * (fy - hy)
-            if not (0.0 <= ax <= W and 0.0 <= ay <= H):
-                continue
-            rank = (0 if kn else (1 if hp < mhp else 2), dist)
-            if rank_best is None or rank < rank_best:
-                rank_best = rank
-                best = (e, p, dist)
-
-    elif s360:
+    if s360:
 
         bd2 = 1e18
 
@@ -1623,7 +1583,7 @@ def _pb_silent(me, cands, allc, tm_cands=None):
 
                 bd2 = dist2; best = (e2, p2, dist2)
 
-    for (e, fs, hs, kn, vis, p, dist) in ([] if s360 or healer else cands):
+    for (e, fs, hs, kn, vis, p, dist) in ([] if s360 else cands):
 
         if _pb_enemy(me, e) != 1:
 
@@ -1673,20 +1633,7 @@ def _pb_silent(me, cands, allc, tm_cands=None):
 
         _PB_SIL['tv'] = 0
 
-    if healer and not _PB_SIL['tv']:
-        return
-
-    if healer:
-        bw = _pb_boneworld(e, 'chest')
-        if bw is not None:
-            t = (bw.x, bw.y, bw.z)
-        else:
-            try:
-                mc = e.getModelCenter()
-                t = (mc.x, mc.y, mc.z)
-            except Exception:
-                t = (p.x, p.y + 11.0, p.z)
-    elif int(bone) == 0:
+    if int(bone) == 0:
 
         hp = _pb_head_pos(e, 1.0)
 
@@ -1828,7 +1775,8 @@ def _pb_nrs_tick(me):
 
     _PB_NRS['ns'] = False
 
-    _PB_NRS['sil'] = (len(c) >= 14 and c[13] >= 0.5) or (len(c) >= 15 and c[14] >= 0.5) or _pb_healer_active(me, c)
+    _PB_NRS['sil'] = (not _pb_healer_active(me, c) and
+                      ((len(c) >= 14 and c[13] >= 0.5) or (len(c) >= 15 and c[14] >= 0.5)))
 
     if (_PB_NRS['nr'] or _PB_NRS['ns'] or _PB_NRS['sil']) and _PB_NRS['cls'] is None:
 
@@ -4676,10 +4624,10 @@ def _pb_esp(g):
                 slot = _pb_ar_active_slot(me)
                 gun_id = _pb_ar_slot_gun_id(me, slot) if slot is not None else 0
                 _pb_publish(_RYOMENX_DIR + '/healer_status.txt',
-                            'Gun %s held %d | team %d target %d\nRay hook %d redirects %d' %
+                            'Gun %s held %d | team %d selected %d\nCamera ready %d rotated %d' %
                             (gun_id, int(_pb_healer_active(me, frame_cfg)), len(tm_cands),
-                             int(_PB_SIL['t'] is not None), int(_PB_NRS['cls'] is not None),
-                             _PB_SIL['n']))
+                             int(_PB_TRG.get('selected', 0)), int(getattr(me, 'camCtrlComp', None) is not None),
+                             int(_PB_TRG.get('rotated', 0))))
             if frame_cfg and len(frame_cfg) > 44 and (frame_cfg[43] >= 0.5 or frame_cfg[44] >= 0.5):
                 _pb_publish(_RYOMENX_DIR + '/ammo_status.txt',
                             _PB_AR_STATE.get('detail', 'Waiting for ammo data'))
