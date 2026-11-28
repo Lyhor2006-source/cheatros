@@ -18,6 +18,8 @@ The client contains NUL-terminated API names and a table of 32-byte records, eac
 
 `anti_cheat_check` parses a Python argument tuple, obtains an internal object, and calls a method through its vtable at offset `0x2a0`. `mobile_acsdk_check` calls a method at vtable offset `0x330`; `inspect_loaded_modules` calls a method at offset `0x2e0`. These are observed wrapper operations, not proof that any one method ran during the reported ban.
 
+The shared helper at preferred VA `0x101b60e54` reads a process-local singleton pointer from preferred VA `0x1044d33a0`; the wrappers then read the object at singleton offset `+8` before dispatch. The concrete vtable pointer is populated at runtime and is not established by these file bytes. A wrapper-only return patch would therefore be an unverified change to the Python API contract, not a verified bypass of the underlying check.
+
 ## Limits of current evidence
 
 - The exact text `iOS anti-cheat`, `This account is banned`, and `Cheating` does not appear in the uncompressed members of this IPA (all 1,214 members below 70 MB checked; one larger resource skipped). This does not establish where the login message originates.
