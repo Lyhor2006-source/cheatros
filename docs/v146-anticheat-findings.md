@@ -47,4 +47,37 @@ This verifies suppression of the measured Hariki image callback and report routi
 
 Validation found 1,216 ZIP members, with one added dylib and only `client` changed relative to the HK-patched IPA; ZIP integrity passed. The `client` contains an existing `LC_CODE_SIGNATURE` command whose signature is no longer valid after the load-command edit. The absence of a `_CodeSignature` ZIP member does not mean the Mach-O lacks a signature command. The IPA must be re-signed before installation, and target launch/gameplay has not been tested.
 
+## Full client binary anti-cheat bypass (`tools/patch_v146_full_anticheat.py`)
+
+Further disassembly and reverse engineering of `Payload/client.app/client` mapped the complete Python `game3d` module table (initialized at preferred VA `0x101047ef4` from table base `0x10384fb40`). The native wrappers were analyzed down to their ARM64 instructions and Python C API calling conventions:
+
+1. **`is_outlaw_device` (VA `0x10104af70`, file offset `0x104af70`)**:
+   - Instruction at `0x10104af90`: `csel x0, x9, x8, ne` (`2011889a`), where `x9` is `_Py_TrueStruct` (`0x1038e5e50`) and `x8` is `_Py_FalseStruct` (`0x1038e5e68`).
+   - Patch: replaced with `mov x0, x8` (`e00308aa`).
+   - Effect: Always returns `Py_False` with incremented refcount, completely neutralizing jailbreak/outlaw device detection.
+
+2. **`inspect_loaded_modules` (VA `0x10104d64c`, file offset `0x104d64c`)**:
+   - Instruction at `0x10104d664`: `blr x8` (`00013fd6`), which calls method `+0x2e0` to scan loaded dylibs.
+   - Patch: replaced with `nop` (`1f2003d5`).
+   - Effect: Dylib scan is skipped. Execution falls through to increment `_Py_NoneStruct` refcount and returns `Py_None` without error or violation of the Python contract.
+
+3. **`mobile_acsdk_check` (VA `0x10104d4bc`, file offset `0x104d4bc`)**:
+   - Instructions at `0x10104d4e0`: `add x8, sp, #8` (`e8230091`) and `blr x9` (`20013fd6`) dispatching method `+0x330`.
+   - Patch: replaced with `str xzr, [sp, #8]` (`ff0700f9`) and `strb wzr, [sp, #0x1f]` (`ff7f0039`).
+   - Effect: Zeroes out the stack-allocated SSO `std::string` buffer and skips check dispatch. `PyString_FromString` returns a clean empty string `""` without heap deallocation or exception.
+
+4. **`anti_cheat_check` (VA `0x10104cd74`, file offset `0x104cddc`)**:
+   - Instruction at `0x10104cddc`: `blr x8` (`00013fd6`), calling method `+0x2a0` which writes an 8-byte token into `[x29, #-0x10]`.
+   - Patch: replaced with `stur xzr, [x29, #-0x10]` (`bf031ff8`).
+   - Effect: Directly zeroes the 8-byte buffer and skips dispatch. `PyString_FromStringAndSize` returns an 8-byte null token `\0\0\0\0\0\0\0\0` cleanly.
+
+### Verified Full-Patched Builds
+
+- `tools/patch_v146_full_anticheat.py` applies all 6 patches (2 in HK, 4 in client), with optional `--dylib` injection.
+- Standalone patched IPA: `ROS-Hariki-iOS-v146-Ultra-8GB-full-patched-unsigned.ipa` (SHA-256 `38c7ffb03bad036e946318578b7f19f55cc892e5c69b5b2ae06b51a29b938760`).
+  - Patched HK SHA-256: `345ad502ca8e80c4c145885bb3f4c2f93a0deb966ad3493eb83eee33ab13aace`
+  - Patched client SHA-256: `70d48b9ee41626b607587db8fd0ead9a279759dd0653f40bb4e3d1efbfd55f29`
+- Full-patched + RosModV2UI injected IPA: `ROS-Hariki-iOS-v146-Ultra-8GB-full-patched-RosModV2UI-unsigned.ipa` (SHA-256 `429d391f9126f922c62d8f74b474b126ea0b1158d5f7d0954074e6e66038bc85`).
+  - Patched client SHA-256: `c67f1b1d24e766606eb8854261a5d3975e79a5dbebfb51f67d58330925c110db`
+
 Reproduce the static mapping: verify both SHA-256 digests, parse the Mach-O `LC_SEGMENT_64` records for `__TEXT`, locate the `anti_cheat_check` string at client file offset `0x316254c`, then find its 64-bit little-endian preferred VA `0x10316254c` at `0x3851480`. The next 64-bit value in that table record is the wrapper VA. Disassemble its bytes as arm64 with Capstone.
