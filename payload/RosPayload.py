@@ -387,6 +387,7 @@ def _pb_aimcfg():
     return _PB_AC['c']
 
 _PB_TRG = {'aim': 0, 'selected': 0, 'rotated': 0}
+_PB_HEAL = {'target': None, 'owner': None}
 
 def _pb_flag(objects, names):
 
@@ -458,6 +459,55 @@ def _pb_healer_active(me, c):
     return 'healer' in name or 'shenshang' in name
 
 
+def _pb_healer_point(entity, position):
+    try:
+        point = _pb_boneworld(entity, 'chest')
+    except Exception:
+        point = None
+    if point is not None:
+        return point
+    try:
+        return entity.getModelCenter()
+    except Exception:
+        try:
+            return type(position)(position.x, position.y + 11.0, position.z)
+        except Exception:
+            return None
+
+
+def _pb_healer_visible(me, entity, origin, point, head_visible=False):
+    import sys
+    if origin is None or point is None:
+        return False
+    checked = False
+    utils = sys.modules.get('shoot_utils')
+    check = getattr(utils, 'isCanBeShot', None) if utils else None
+    if callable(check):
+        try:
+            visible = check(origin, point)
+            checked = True
+            if visible:
+                return True
+        except Exception:
+            pass
+    try:
+        space = _pb_space()
+        if space is not None and callable(getattr(space, 'RawRaycast', None)):
+            result = space.RawRaycast(origin, 150.0, 19, with_trigger=False, to_pos=point)
+            checked = True
+            if result is None:
+                return True
+            body = getattr(result, 'Body', None)
+            if body is None:
+                return getattr(result, 'Flags', 0) == 7
+            owner = getattr(body, 'ownerid', None) or getattr(body, 'entity_id', None)
+            return owner is not None and owner == getattr(entity, 'id', None)
+    except Exception:
+        pass
+    # Use head visibility only when no native torso query is available.
+    return False if checked else bool(head_visible)
+
+
 def _pb_aim(me, cands, allc=None, tm_cands=None):
 
     import math
@@ -471,6 +521,8 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
         return
 
     use_healer_aim = _pb_healer_active(me, c)
+    if not use_healer_aim or _PB_HEAL.get('owner') is not me:
+        _PB_HEAL.update(target=None, owner=me if use_healer_aim else None)
 
     if not use_healer_aim and c[0] < 0.5:
 
@@ -520,27 +572,38 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
         cam = me.position
 
     if use_healer_aim:
-        if not tm_cands:
-            return
-        # Healer Aim: prioritize knocked (downed) teammates to revive them!
-        best_rank = None
-        for t in tm_cands:
-            te, tfs, ths, tkn, tvis, tp, tdist, thp, tmhp = t
+        eligible = []
+        for te, tfs, ths, tkn, tvis, tp, tdist, thp, tmhp in (tm_cands or []):
+            if te is me or _pb_enemy(me, te) != 0 or tdist / 10.0 > maxd:
+                continue
+            point = _pb_healer_point(te, tp)
+            if point is None:
+                continue
             tfx, tfy = _pb_aim_screen(tfs, W, H, metrics)
             thx, thy = _pb_aim_screen(ths, W, H, metrics)
-            tax = thx; tay = thy + 0.35 * (tfy - thy)
+            tax, tay = thx, thy + 0.35 * (tfy - thy)
             if not (0.0 <= tax <= W and 0.0 <= tay <= H):
                 continue
-            if tdist / 10.0 > maxd:
+            if not _pb_healer_visible(me, te, cam, point, tvis):
                 continue
-            if te is me or _pb_enemy(me, te) != 0 or not tvis:
-                continue
-            td_screen = ((tax - cx) ** 2 + (tay - cy) ** 2) ** 0.5
-            # Rank 0: knocked (revive!), Rank 1: injured (heal!), Rank 2: full hp (boost speed!)
-            rank = (0 if tkn else (1 if thp < tmhp else 2), td_screen)
-            if best is None or rank < best_rank:
-                best_rank = rank
-                best = (te, tp)
+            screen_distance = ((tax - cx) ** 2 + (tay - cy) ** 2) ** 0.5
+            priority = 0 if tkn else (1 if thp < tmhp else 2)
+            eligible.append(((priority, screen_distance, tdist), te, tp, point, tvis))
+        if eligible:
+            chosen = min(eligible, key=lambda item: item[0])
+            # Retain a valid equal-priority teammate through small screen jitter.
+            # Higher priority, occlusion, range and team changes release it now.
+            for item in eligible:
+                token = getattr(item[1], 'id', id(item[1]))
+                if (token == _PB_HEAL.get('target') and item[0][0] == chosen[0][0] and
+                        item[0][1] <= chosen[0][1] + 24.0):
+                    chosen = item
+                    break
+            rank, te, tp, point, tvis = chosen
+            best = (te, tp, point, tvis)
+            _PB_HEAL['target'] = getattr(te, 'id', id(te))
+        else:
+            _PB_HEAL['target'] = None
     else:
         for (e, fs, hs, kn, vis, p, dist) in cands:
 
@@ -576,13 +639,14 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
 
         return
 
-    e, p = best
+    e, p = best[:2]
 
     _PB_TRG['selected'] = 1
 
     try:
 
-        _PB_TRG['aim'] = _pb_vis(me, e, cam)
+        _PB_TRG['aim'] = (_pb_healer_visible(me, e, cam, best[2], best[3])
+                          if use_healer_aim else _pb_vis(me, e, cam))
 
     except Exception:
 
@@ -595,7 +659,7 @@ def _pb_aim(me, cands, allc=None, tm_cands=None):
 
     key = 'chest' if use_healer_aim else ['head', 'chest', 'pelvis'][min(2, max(0, int(bone)))]
 
-    target = _pb_boneworld(e, key)
+    target = best[2] if use_healer_aim else _pb_boneworld(e, key)
 
     if target is not None:
 

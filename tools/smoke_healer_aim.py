@@ -1,11 +1,12 @@
 """Verify healer teammate camera alignment without redirecting native shots."""
 import ast
+import sys
 from pathlib import Path
 from types import SimpleNamespace as Obj
 
 source = Path(__file__).resolve().parents[1] / 'payload' / 'RosPayload.py'
 tree = ast.parse(source.read_text())
-names = {'_pb_healer_active', '_pb_aim', '_pb_silent', '_pb_nrs_tick', '_pb_flag',
+names = {'_pb_healer_point', '_pb_healer_visible', '_pb_healer_active', '_pb_aim', '_pb_silent', '_pb_nrs_tick', '_pb_flag',
          '_pb_enemy', '_pb_team_id', '_pb_squad_member', '_pb_wounded', '_pb_trackable'}
 functions = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
 config = [0.0] * 46
@@ -20,7 +21,7 @@ player = Obj(id=1, teamID=1, dtsCurWeapon=0, dtsWeapon0={'weaponID': 1011},
              dtsCurRailID=20011, camCtrlComp=camera,
              position=Obj(x=0,y=0,z=0), getViewPos=lambda: Obj(x=0,y=0,z=0),
              getViewDirection=lambda: Obj(x=0,y=0,z=1))
-namespace = dict(_PB_TRG={}, _PB_NRS=dict(sil=True,cls=Obj(),nr=False,ns=False),
+namespace = dict(_PB_HEAL=dict(target=None,owner=None), _pb_space=lambda: None, _PB_TRG={}, _PB_NRS=dict(sil=True,cls=Obj(),nr=False,ns=False),
                  _PB_SIL=dict(t=(1,2,3),tv=1), unicode=str,
                  _pb_aimcfg=lambda: config, _pb_vis=lambda *_: 1,
                  _pb_aim_screen=lambda point,*_: point,
@@ -52,10 +53,29 @@ check([candidate(enemy)],False)  # Reject an enemy in a malformed teammate list.
 check([candidate(injured,visible=False)],False)
 check([candidate(injured,feet=(150,60),head=(150,40))],False)
 check([candidate(injured,dist=1001)],False)
-namespace['_pb_vis'] = lambda *_: 0
-check([candidate(injured)],False)  # Final visibility changed after candidate collection.
-namespace['_pb_vis'] = lambda *_: 1
+native_visibility = [False]
+saved_utils = sys.modules.get('shoot_utils')
+sys.modules['shoot_utils'] = Obj(isCanBeShot=lambda origin,point: native_visibility[0])
+check([candidate(injured)],False)  # Torso blocked despite a visible head.
+native_visibility[0] = True
+check([candidate(injured,visible=False)],True)  # Torso visible despite a blocked head.
+if saved_utils is None:
+    del sys.modules['shoot_utils']
+else:
+    sys.modules['shoot_utils'] = saved_utils
 check([candidate(injured,feet=(95,60),head=(95,40))],True)
+# Keep an equally eligible target through small pixel movements, then release it
+# for a much more central target or a newly downed teammate.
+other = Obj(id=5,teamID=1,bones={'chest':Obj(x=-2,y=2,z=10)})
+check([candidate(injured)],True)
+check([candidate(other),candidate(injured,feet=(55,60),head=(55,40))],True)
+assert namespace['_PB_HEAL']['target'] == injured.id
+check([candidate(other),candidate(injured,feet=(95,60),head=(95,40))],True)
+assert namespace['_PB_HEAL']['target'] == other.id
+check([candidate(other),candidate(downed,knocked=True,hp=0)],True)
+assert namespace['_PB_HEAL']['target'] == downed.id
+check([],False)
+assert namespace['_PB_HEAL']['target'] is None
 # Native healer shots must not be rewritten by either enemy ray mode.
 namespace['_PB_NRS']['sil'] = True
 silent(player,[],[],[candidate(injured)])
