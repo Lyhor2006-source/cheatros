@@ -3990,162 +3990,68 @@ def _pb_ar_trigger_reload(me, objs):
 
 
 def _pb_auto_reload(me, c):
-
     import time
-
     ar_on = bool(c and len(c) > 43 and c[43] >= 0.5)
-
     unlim_on = bool(c and len(c) > 44 and c[44] >= 0.5)
-
-    was_unlim_on = _PB_AR_STATE.get('unlim_on', False)
-
     _PB_AR_STATE['ar_on'] = ar_on
-
     _PB_AR_STATE['unlim_on'] = unlim_on
-
-    if unlim_on and not was_unlim_on:
-        _PB_AR_STATE['native_reserve_available'] = {}
-
     if not (ar_on or unlim_on):
-
-        _PB_AR_STATE['valid_gun'] = False
-
-        _PB_AR_STATE['state'] = 'idle'
-
-        _PB_AR_STATE['reload_seen'] = False
-
-        _PB_AR_STATE.pop('native_reserve_available', None)
-        _PB_AR_STATE.pop('reserve_highwater', None)
-        _PB_AR_STATE.pop('magazine_refs', None)
+        _PB_AR_STATE.update(valid_gun=False, state='idle', reload_seen=False,
+                            key=None, requested=False, detail='Disabled')
         _PB_AR_STATE.pop('reload_events', None)
-        _PB_AR_STATE['key'] = None
-
         return
-
-    try: _pb_ar_install_ws_hooks()
-
-    except Exception: pass
-
-    res = _pb_ar_probe(me)
-
-    if res is None or res[0] is None:
-
+    try:
+        _pb_ar_install_ws_hooks()
+    except Exception:
+        pass
+    result = _pb_ar_probe(me)
+    if not result or result[0] is None:
         _PB_AR_STATE['valid_gun'] = False
-
-        _PB_AR_STATE['state'] = 'idle'
-
-        _PB_AR_STATE['reload_seen'] = False
-
+        _PB_AR_STATE['detail'] = 'No selected magazine'
         return
-
-    wep_key, cur_ammo, attr_max, targets, objs, gun_id, cur_mag = res
-
+    key, ammo, capacity, targets, objects, gun_id, magazine = result
+    # Runtime wrappers can change identity each tick. Logical equipped-weapon
+    # identity must not rearm an empty magazine's one-shot request latch.
+    key = key[:3]
     _PB_AR_STATE['valid_gun'] = True
-
+    reserve = getattr(magazine, 'ammo_box_bullet_count', None) if magazine is not None else None
+    reloading = _pb_ar_is_reloading(me, objects)
     now = getattr(time, 'monotonic', time.time)()
-
-    if _PB_AR_STATE['key'] != wep_key:
-
-        _PB_AR_STATE['key'] = wep_key
-
-        _PB_AR_STATE['state'] = 'idle'
-
-        _PB_AR_STATE['reload_seen'] = False
-
-        if unlim_on and cur_mag is not None:
-            initial_reserve = getattr(cur_mag, 'ammo_box_bullet_count', None)
-            _PB_AR_STATE.setdefault('native_reserve_available', {}).setdefault(wep_key,
-                isinstance(initial_reserve, (int, float)) and initial_reserve > 0)
-
-        _PB_AR_STATE['switch_until'] = now + 0.50
-
+    if _PB_AR_STATE.get('key') != key:
+        _PB_AR_STATE.update(key=key, state='idle', requested=False,
+                            reload_seen=False, switch_until=now + 0.5)
+    _PB_AR_STATE['detail'] = 'Gun %s | mag %s/%s spare %s | native %d | %s' % (
+        gun_id, ammo, capacity, reserve, int(reloading), _PB_AR_STATE['state'])
+    if ammo is None:
         return
-
-    if now < _PB_AR_STATE.get('switch_until', 0.0):
-
-        return
-
-    # Unhook zero-consumption hook if previously active, restoring natural gun firing
-    if cur_mag is not None and getattr(cur_mag, '_rx_unlim_hooked', False):
-        try:
-            orig = getattr(cur_mag, '_rx_orig_dec', None)
-            if orig is not None:
-                cur_mag.decBulletFromMagazine = orig
-            elif hasattr(cur_mag, 'decBulletFromMagazine'):
-                delattr(cur_mag, 'decBulletFromMagazine')
-            if hasattr(cur_mag, '_bulletInfinite'):
-                delattr(cur_mag, '_bulletInfinite')
-            cur_mag._rx_unlim_hooked = False
-        except Exception:
-            pass
-
-    st = _PB_AR_STATE['state']
-
-    # The magazine depletes naturally. Keep a local reserve for native reload,
-    # then refill only after the game's reload state has ended.
-    if unlim_on and cur_mag is not None:
-        cap = getattr(cur_mag, 'magazine_capacity', None)
-        if not (isinstance(cap, (int, float)) and 1 <= int(cap) <= 400):
-            cap = attr_max if (isinstance(attr_max, (int, float)) and 1 <= int(attr_max) <= 400) else 0
-        eff_cap = int(cap)
-
-        reserve = getattr(cur_mag, 'ammo_box_bullet_count', None)
-        if eff_cap > 0 and isinstance(reserve, (int, float)) and not isinstance(reserve, bool) and reserve >= 0:
-            floor = max(int(reserve), eff_cap * 5)
-            if reserve < floor:
-                try:
-                    cur_mag.ammo_box_bullet_count = floor
-                except Exception:
-                    _PB_AR_STATE['state'] = 'failed'
-                    return
-
-        # The game alone loads rounds, including individual shotgun shells.
-        # Never synthesize magazine or HUD values on state exit or a timeout.
-        if st == 'reloading':
-            reloading_now = _pb_ar_is_reloading(me, objs)
-            if reloading_now:
-                _PB_AR_STATE['reload_seen'] = True
-            elif cur_ammo > 0:
-                _PB_AR_STATE['state'] = 'idle'
-                _PB_AR_STATE['reload_seen'] = False
-            elif _PB_AR_STATE.get('reload_seen'):
-                _PB_AR_STATE['state'] = 'failed'
-
-    if cur_ammo is None:
-        return
-
-    st = _PB_AR_STATE['state']
-    if cur_ammo > 0:
-        if st == 'reloading':
-            if not _pb_ar_is_reloading(me, objs):
-                _PB_AR_STATE['state'] = 'idle'
-        return
-
-    # When empty (cur_ammo == 0):
-    # If the game's native reload animation is actively playing, never interrupt it!
-    if _pb_ar_is_reloading(me, objs):
-        if st != 'reloading':
-            _PB_AR_STATE['state'] = 'reloading'
-            _PB_AR_STATE['reload_ammo'] = cur_ammo
-            _PB_AR_STATE['reload_start'] = now
-            _PB_AR_STATE['reload_seen'] = True
-        return
-
-    # One reload request per empty magazine; a failed refill must not spam reload.
-    if st in ('reloading', 'failed'):
-        return
-
-    if _pb_ar_trigger_reload(me, objs):
+    if reloading:
+        _PB_AR_STATE['reload_seen'] = True
         _PB_AR_STATE['state'] = 'reloading'
-        _PB_AR_STATE['reload_ammo'] = cur_ammo
-        _PB_AR_STATE['reload_start'] = now
-        _PB_AR_STATE['reload_seen'] = False
+        # Do not rearm on a partial shell load while the native reload is active.
+        return
+    if ammo > 0:
+        _PB_AR_STATE.update(state='idle', requested=False, reload_seen=False)
+        return
+    if _PB_AR_STATE.get('reload_seen'):
+        _PB_AR_STATE['requested'] = True
+        _PB_AR_STATE['state'] = 'failed'
+    if _PB_AR_STATE.get('requested'):
+        return
+    if now < _PB_AR_STATE.get('switch_until', 0.0):
+        return
+    # A local reserve counter is not bag inventory. Never fabricate it: the
+    # native auto-reload can repeatedly consume/retry against an empty bag.
+    if isinstance(reserve, (int, float)) and not isinstance(reserve, bool) and reserve <= 0:
+        _PB_AR_STATE['state'] = 'no_reserve'
+        _PB_AR_STATE['detail'] += ' | No real reserve; refill unavailable'
+        return
+    # Latch before calling into game code, including synchronous callbacks.
+    _PB_AR_STATE['requested'] = True
+    _PB_AR_STATE['state'] = 'requesting'
+    if _pb_ar_trigger_reload(me, objects):
+        _PB_AR_STATE['state'] = 'reloading'
     else:
         _PB_AR_STATE['state'] = 'failed'
-        _PB_AR_STATE['reload_ammo'] = cur_ammo
-        _PB_AR_STATE['reload_start'] = now
-        _PB_AR_STATE['reload_seen'] = False
-
 
 
 def _pb_actions(me, cands, allc, tm_cands=None):
@@ -4612,6 +4518,9 @@ def _pb_esp(g):
                             (gun_id, int(_pb_healer_active(me, frame_cfg)), len(tm_cands),
                              int(_PB_SIL['t'] is not None), int(_PB_NRS['cls'] is not None),
                              _PB_SIL['n']))
+            if frame_cfg and len(frame_cfg) > 44 and (frame_cfg[43] >= 0.5 or frame_cfg[44] >= 0.5):
+                _pb_publish(_RYOMENX_DIR + '/ammo_status.txt',
+                            _PB_AR_STATE.get('detail', 'Waiting for ammo data'))
             _pb_diag(me, ents)
 
     except _PBNotBattle:
@@ -4870,6 +4779,18 @@ def _pb_diag(me, ents):
 
                     res_ar[0], res_ar[1], res_ar[2], [(type(t[0]).__name__, t[1], t[2]) for t in (res_ar[3] or [])[:10]]))
 
+                mag = res_ar[6]
+                if mag is not None:
+                    f_out.append('MAG_TYPE=%s' % type(mag).__name__)
+                    for name in dir(mag):
+                        if not any(word in name.lower() for word in ('ammo', 'bullet', 'reload', 'fill', 'capacity')):
+                            continue
+                        try:
+                            value = getattr(mag, name)
+                            text = '<callable>' if callable(value) else repr(value)[:160]
+                            f_out.append('MAG %s=%s' % (name, text))
+                        except Exception:
+                            pass
                 for ro in (res_ar[4] or [])[:4]:
 
                     if hasattr(ro, 'isMagazineEmpty') or hasattr(ro, 'isAmmoBoxEmpty'):
@@ -4883,6 +4804,8 @@ def _pb_diag(me, ents):
                             pass
 
             open(_RYOMENX_DIR + '/ros_feature_diag.txt', 'w').write('\n'.join(f_out))
+            ammo_lines = [line for line in f_out if line.startswith(('AR_', 'MAG_', 'MAG ', 'DTS_WEP', 'RAIL_DIR', 'mags='))]
+            _pb_publish(_RYOMENX_DIR + '/ros_ammo_diag.txt', _PB_AR_STATE.get('detail', '') + '\n' + '\n'.join(ammo_lines))
 
         except Exception as fex:
 

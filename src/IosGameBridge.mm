@@ -145,8 +145,11 @@ public:
 
     IosUIBridge::FeatureStatus GetMemoryFeatureStatus(IosUIBridge::MemoryFeature feature) override {
         auto status = MemoryCheats::GetStatus(feature);
-        if (feature == IosUIBridge::MemoryFeature::HealerAim && status.enabled) {
-            const std::string path = baseDir_ + "/healer_status.txt";
+        if ((feature == IosUIBridge::MemoryFeature::HealerAim ||
+             feature == IosUIBridge::MemoryFeature::UnlimitedAmmo ||
+             feature == IosUIBridge::MemoryFeature::AutoReload) && status.enabled) {
+            const bool healer = feature == IosUIBridge::MemoryFeature::HealerAim;
+            const std::string path = baseDir_ + (healer ? "/healer_status.txt" : "/ammo_status.txt");
             struct stat info = {};
             if (stat(path.c_str(), &info) == 0 && std::time(nullptr) - info.st_mtime <= 3) {
                 FILE* fp = std::fopen(path.c_str(), "rb");
@@ -157,10 +160,20 @@ public:
                     if (count) status.detail.assign(buf, count);
                 }
             } else {
-                status.detail = payloadInjected_ ? "Healer data pending" : "Engine loading";
+                status.detail = payloadInjected_ ? "Runtime data pending" : "Engine loading";
             }
         }
         return status;
+    }
+
+    std::string GetAmmoDiagnosticReport() override {
+        const std::string path = baseDir_ + "/ros_ammo_diag.txt";
+        FILE* fp = std::fopen(path.c_str(), "rb");
+        if (!fp) return std::string();
+        char buf[16384] = {};
+        const size_t count = std::fread(buf, 1, sizeof(buf) - 1, fp);
+        std::fclose(fp);
+        return std::string(buf, count);
     }
 
     bool RequestMemoryFeature(IosUIBridge::MemoryFeature feature, bool enable, float param) override {

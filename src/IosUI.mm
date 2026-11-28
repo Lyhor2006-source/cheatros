@@ -1,6 +1,7 @@
 #import "IosUI.h"
 #import "MemoryCheats.h"
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 
 #include "imgui_internal.h"
 #include <algorithm>
@@ -932,8 +933,24 @@ void RenderMemoryTab() {
                 IosUIBridge::MemoryFeature::UnlimitedAmmo);
             if (st.enabled && !st.detail.empty()) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.90f, 0.72f, 0.75f));
-                ImGui::TextUnformatted(st.detail.c_str());
+                ImGui::TextWrapped("%s", st.detail.c_str());
                 ImGui::PopStyleColor(1);
+            }
+        }
+        if (ImGui::Button("Copy ammo report")) {
+            const std::string report = ctx.backend ? ctx.backend->GetAmmoDiagnosticReport() : std::string();
+            if (report.empty()) {
+                PushToast("Enter a match and wait for ammo data");
+            } else {
+                NSString* text = [[NSString alloc] initWithBytes:report.data()
+                                                       length:report.size()
+                                                     encoding:NSUTF8StringEncoding];
+                if (text) {
+                    [UIPasteboard generalPasteboard].string = text;
+                    PushToast("Ammo report copied");
+                } else {
+                    PushToast("Ammo report encoding error");
+                }
             }
         }
         EndCard();
