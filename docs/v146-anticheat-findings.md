@@ -41,4 +41,10 @@ Further inspection of the same IPA found `Payload/client.app/Frameworks/HK.frame
 
 This verifies suppression of the measured Hariki image callback and report routine in file bytes. It does **not** establish that iOS code signing, other checks, server enforcement, or target gameplay will accept the modified IPA. Roll back with the unmodified original IPA.
 
+## IPA with RosModV2UI embedded
+
+`tools/inject_v146_dylib.py` embeds the last code-changing `RosModV2UI.dylib` build (SHA-256 `2ec429aabef3012a300d54bc1b53367d470b01cd05a60c3bdf083af683d80261`) in the patched IPA. It adds `Payload/client.app/Frameworks/RosModV2UI.dylib` and an `LC_LOAD_DYLIB` command for `@executable_path/Frameworks/RosModV2UI.dylib` to `client`. The output IPA SHA-256 is `00a46705abfd0a518b1a63002683d5bb866ab9f697a61cf289079658bce2d277`.
+
+Validation found 1,216 ZIP members, with one added dylib and only `client` changed relative to the HK-patched IPA; ZIP integrity passed. The `client` contains an existing `LC_CODE_SIGNATURE` command whose signature is no longer valid after the load-command edit. The absence of a `_CodeSignature` ZIP member does not mean the Mach-O lacks a signature command. The IPA must be re-signed before installation, and target launch/gameplay has not been tested.
+
 Reproduce the static mapping: verify both SHA-256 digests, parse the Mach-O `LC_SEGMENT_64` records for `__TEXT`, locate the `anti_cheat_check` string at client file offset `0x316254c`, then find its 64-bit little-endian preferred VA `0x10316254c` at `0x3851480`. The next 64-bit value in that table record is the wrapper VA. Disassemble its bytes as arm64 with Capstone.
