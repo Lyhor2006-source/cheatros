@@ -1770,16 +1770,6 @@ def _pb_nrs_install():
             pass
 
     if cls is None:
-        for o in gc.get_objects():
-            try:
-                t = type(o)
-                if t.__name__ == 'MechanicalEvaluator' and not isinstance(o, type):
-                    cls = t
-                    break
-            except Exception:
-                pass
-
-    if cls is None:
 
         return
 
