@@ -26,6 +26,18 @@ The shared helper at preferred VA `0x101b60e54` reads a process-local singleton 
 - `script.npk` is an NXPK archive with 3,983 index records. The local NXPK reader parses its index; the script entry bodies do not expose plain anti-cheat call sites. No decompiled script call path has been verified.
 - REA opened the IPA and arm64 client, but its native string and xref queries did not return in this session. The registration table and wrapper instructions above were measured directly from the named client bytes using Python and Capstone.
 - There is no runtime anti-cheat trace, server request/response, or exact injected IPA for the banned session. The screenshot shows an account ban message, but cannot identify a client check that caused it.
-- No binary patch or bypass is justified by these findings. A patch to one wrapper could leave other checks or server-side enforcement intact.
+- These native client wrappers alone do not justify a bypass patch. A patch to one wrapper could leave other checks or server-side enforcement intact.
+
+## Hariki framework detection path and experimental patch
+
+Further inspection of the same IPA found `Payload/client.app/Frameworks/HK.framework/HK` (SHA-256 `2b4b5a6facc4196352f1ef9dde1fe89622bbf2df864be72472257eda639bbb31`). Its arm64 `__TEXT` maps file offset 0 to preferred VA 0.
+
+- At file offset `0x4014`, bytes `a0c80194` call `__dyld_register_func_for_add_image` with callback address `0x4068`. The callback invokes `dladdr` and checks each loaded image path against permitted path fragments.
+- At `0x5324`–`0x5348`, the framework constructs the reason string `unauthorized_dylib_injected`, then calls the routine at `0x537c`. This matches the visible `una...` prefix in the user screenshot; the screenshot does not expose the rest of the message.
+- Four direct call sites (`0x49cc`, `0x5250`, `0x52d4`, `0x5350`) call `0x537c`. That routine prepares a request using the embedded Hariki auto-ban URL. It is a reporting path, though no live request was captured here.
+- An exact-build patcher at `tools/patch_v146_hk_anticheat.py` replaces the callback registration call with an ARM64 NOP (`1f2003d5`) and the first instruction of the report routine (`fc6fbaa9`) with ARM64 RET (`c0035fd6`). The patcher refuses any other IPA or HK digest.
+- Static validation: the patched IPA contains the same 1,215 members in the same order; only `HK.framework/HK` differs; ZIP integrity passes; Capstone disassembles the replacement bytes as `nop` and `ret`. Patched IPA SHA-256: `6fd4b4a74790ecb5435caa9ccb6cc6fe04989468c48ba6b0bff630a6ec56fd4b`.
+
+This verifies suppression of the measured Hariki image callback and report routine in file bytes. It does **not** establish that iOS code signing, other checks, server enforcement, or target gameplay will accept the modified IPA. Roll back with the unmodified original IPA.
 
 Reproduce the static mapping: verify both SHA-256 digests, parse the Mach-O `LC_SEGMENT_64` records for `__TEXT`, locate the `anti_cheat_check` string at client file offset `0x316254c`, then find its 64-bit little-endian preferred VA `0x10316254c` at `0x3851480`. The next 64-bit value in that table record is the wrapper VA. Disassemble its bytes as arm64 with Capstone.
