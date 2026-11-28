@@ -531,42 +531,6 @@ static void RyomenXInstallTouchHook(void) {
     });
 }
 
-@interface RyomenXGestureHandler : NSObject <UIGestureRecognizerDelegate>
-+ (instancetype)sharedInstance;
-- (void)handleThreeFingerDoubleTap:(UITapGestureRecognizer*)sender;
-@end
-
-@implementation RyomenXGestureHandler
-
-+ (instancetype)sharedInstance {
-    static RyomenXGestureHandler* sInstance = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        sInstance = [[RyomenXGestureHandler alloc] init];
-    });
-    return sInstance;
-}
-
-- (void)handleThreeFingerDoubleTap:(UITapGestureRecognizer*)sender {
-    if (sender.state == UIGestureRecognizerStateRecognized) {
-        RyomenXToggleMenuWithDebounce();
-    }
-}
-
-- (BOOL)gestureRecognizer:(UIGestureRecognizer*)gestureRecognizer
-shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer*)otherGestureRecognizer {
-    return YES;
-}
-
-- (BOOL)gestureRecognizer:(UIGestureRecognizer*)gestureRecognizer
-shouldReceiveTouch:(UITouch*)touch {
-    return YES;
-}
-
-@end
-
-static __weak UITapGestureRecognizer* gWindowTripleTap = nil;
-
 void RyomenXAttachOverlayToKeyWindow(void) {
     if (![NSThread isMainThread]) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -580,23 +544,6 @@ void RyomenXAttachOverlayToKeyWindow(void) {
     UIWindow* win = FindActiveKeyWindow();
     if (!win) return;
     win.multipleTouchEnabled = YES;
-
-    if (!gWindowTripleTap || gWindowTripleTap.view != win) {
-        if (gWindowTripleTap) {
-            [gWindowTripleTap.view removeGestureRecognizer:gWindowTripleTap];
-        }
-        UITapGestureRecognizer* tripleTap = [[UITapGestureRecognizer alloc]
-            initWithTarget:[RyomenXGestureHandler sharedInstance]
-                    action:@selector(handleThreeFingerDoubleTap:)];
-        tripleTap.numberOfTouchesRequired = 3;
-        tripleTap.numberOfTapsRequired = 2;
-        tripleTap.cancelsTouchesInView = NO;
-        tripleTap.delaysTouchesBegan = NO;
-        tripleTap.delaysTouchesEnded = NO;
-        tripleTap.delegate = [RyomenXGestureHandler sharedInstance];
-        [win addGestureRecognizer:tripleTap];
-        gWindowTripleTap = tripleTap;
-    }
 
     RyomenXOverlayView* existing = gOverlayView;
     if (existing) {
@@ -617,17 +564,6 @@ void RyomenXAttachOverlayToKeyWindow(void) {
 
     RyomenXOverlayView* view = [[RyomenXOverlayView alloc] initWithFrame:win.bounds device:MTLCreateSystemDefaultDevice()];
     if (!view) return;
-
-    UITapGestureRecognizer* viewTap = [[UITapGestureRecognizer alloc]
-        initWithTarget:[RyomenXGestureHandler sharedInstance]
-                action:@selector(handleThreeFingerDoubleTap:)];
-    viewTap.numberOfTouchesRequired = 3;
-    viewTap.numberOfTapsRequired = 2;
-    viewTap.cancelsTouchesInView = NO;
-    viewTap.delaysTouchesBegan = NO;
-    viewTap.delaysTouchesEnded = NO;
-    viewTap.delegate = [RyomenXGestureHandler sharedInstance];
-    [view addGestureRecognizer:viewTap];
 
     gOverlayView = view;
     [win addSubview:view];
