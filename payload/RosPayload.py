@@ -106,6 +106,10 @@ def _pb_empty():
 
     global _PB_EMPTY
 
+    if '_PB_AR_STATE' in globals():
+        _PB_AR_STATE['unlim_on'] = False
+        _pb_ar_restore_local_ammo()
+
     if not _PB_EMPTY:
 
         _pb_publish(_PB_PATH, '0')
@@ -4015,12 +4019,141 @@ def _pb_ammo_method_report(magazine):
     return lines
 
 
+def _pb_ar_restore_local_ammo():
+    record = _PB_AR_STATE.get('local_ammo')
+    if record is None:
+        return True
+    magazine = record['magazine']
+    restored = True
+    for name, hook in record['hooks'].items():
+        try:
+            if vars(magazine).get(name) is hook['applied']:
+                if hook['present']:
+                    setattr(magazine, name, hook['previous'])
+                else:
+                    delattr(magazine, name)
+        except Exception:
+            restored = False
+    if restored:
+        try:
+            # Restore only our virtual reserve, never overwrite a later pickup.
+            if magazine.ammo_box_bullet_count == record.get('virtual_reserve'):
+                magazine.ammo_box_bullet_count = record['reserve']
+        except Exception:
+            restored = False
+    if restored:
+        _PB_AR_STATE.pop('local_ammo', None)
+    return restored
+
+
+def _pb_ar_local_ammo(me, key, magazine):
+    record = _PB_AR_STATE.get('local_ammo')
+    if record is not None:
+        if (record['player'] is me and record['key'] == key[:3] and
+                record['magazine'] is magazine and
+                all(vars(magazine).get(n) is h['applied'] for n, h in record['hooks'].items())):
+            return True
+        if not _pb_ar_restore_local_ammo():
+            return False
+    names = ('decBulletFromMagazine', 'addBulletToMagazine',
+             'getCountOfBulletToReload', 'isAmmoBoxEmpty')
+    originals = {name: getattr(magazine, name, None) for name in names}
+    if not all(callable(fn) for fn in originals.values()):
+        return False
+    reserve = getattr(magazine, 'ammo_box_bullet_count', None)
+    capacity = getattr(magazine, 'magazine_capacity', None)
+    if (isinstance(reserve, bool) or not isinstance(reserve, (int, float)) or reserve < 0 or
+            isinstance(capacity, bool) or not isinstance(capacity, (int, float)) or not 1 <= capacity <= 400):
+        return False
+    record = dict(player=me, key=key[:3], magazine=magazine, hooks={}, reserve=reserve)
+
+    def active(this):
+        try:
+            world = globals().get('BigWorld')
+            if world is not None and world.player() is not me:
+                return False
+            if (_PB_AR_STATE.get('local_ammo') is not record or
+                    not _PB_AR_STATE.get('unlim_on') or this is not magazine):
+                return False
+            probe = _pb_ar_probe(me)
+            return (probe and probe[0] is not None and probe[0][:3] == record['key'] and
+                    probe[6] is magazine and
+                    all(vars(magazine).get(n) is h['applied'] for n, h in record['hooks'].items()))
+        except Exception:
+            return False
+
+    def publish():
+        # Keep the selected slot HUD consistent, without syncing invented
+        # inventory to the server or touching unrelated rail bullet fields.
+        try:
+            me.dtsWeaponMagazineBullets[record['key'][0]] = magazine.bullet_count
+        except Exception:
+            pass
+        try:
+            magazine._bag._notifyUIChange()
+        except Exception:
+            pass
+
+    def decrement(this, *args, **kwargs):
+        if not active(this):
+            return originals['decBulletFromMagazine'](*args, **kwargs)
+        count = this.bullet_count
+        if not isinstance(count, (int, float)) or isinstance(count, bool) or count < 0:
+            return originals['decBulletFromMagazine'](*args, **kwargs)
+        this.bullet_count = max(0, int(count) - 1)
+        publish()
+        # Same return contract as the working dylib's infinite branch; only
+        # the local counter depletes, not real inventory.
+        return 0
+
+    def transfer_count(this, *args, **kwargs):
+        if not active(this):
+            return originals['getCountOfBulletToReload'](*args, **kwargs)
+        return max(0, int(this.magazine_capacity) - int(this.bullet_count))
+
+    def transfer(this, count=None):
+        if not active(this):
+            return originals['addBulletToMagazine'](count)
+        missing = max(0, int(this.magazine_capacity) - int(this.bullet_count))
+        amount = missing if count is None else min(missing, max(0, int(count)))
+        # Called by the original reload animation/state, not by a polling
+        # timeout. Honor native per-shell transfers and interrupted reloads.
+        this.bullet_count += amount
+        publish()
+        return this.bullet_count
+
+    def reserve_empty(this, *args, **kwargs):
+        if not active(this):
+            return originals['isAmmoBoxEmpty'](*args, **kwargs)
+        return False
+
+    _PB_AR_STATE['local_ammo'] = record
+    try:
+        for name, function in zip(names, (decrement, transfer, transfer_count, reserve_empty)):
+            namespace = vars(magazine)
+            applied = function.__get__(magazine, type(magazine))
+            record['hooks'][name] = dict(present=name in namespace,
+                                         previous=namespace.get(name), applied=applied)
+            setattr(magazine, name, applied)
+            if vars(magazine).get(name) is not applied:
+                raise ValueError('Magazine method binding rejected')
+        record['virtual_reserve'] = max(int(reserve), int(capacity) * 5)
+        magazine.ammo_box_bullet_count = record['virtual_reserve']
+        return True
+    except Exception:
+        _pb_ar_restore_local_ammo()
+        return False
+
+
 def _pb_auto_reload(me, c):
     import time
     ar_on = bool(c and len(c) > 43 and c[43] >= 0.5)
     unlim_on = bool(c and len(c) > 44 and c[44] >= 0.5)
     _PB_AR_STATE['ar_on'] = ar_on
     _PB_AR_STATE['unlim_on'] = unlim_on
+    if not unlim_on and not _pb_ar_restore_local_ammo():
+        _PB_AR_STATE['detail'] = 'Ammo hook restoration pending'
+        return
     if not (ar_on or unlim_on):
         _PB_AR_STATE.update(valid_gun=False, state='idle', reload_seen=False,
                             key=None, requested=False, detail='Disabled')
@@ -4039,6 +4172,9 @@ def _pb_auto_reload(me, c):
     # Runtime wrappers can change identity each tick. Logical equipped-weapon
     # identity must not rearm an empty magazine's one-shot request latch.
     key = key[:3]
+    if unlim_on and (magazine is None or not _pb_ar_local_ammo(me, key, magazine)):
+        _PB_AR_STATE['detail'] = 'Native magazine hooks unavailable; unchanged'
+        return
     _PB_AR_STATE['valid_gun'] = True
     reserve = getattr(magazine, 'ammo_box_bullet_count', None) if magazine is not None else None
     reloading = _pb_ar_is_reloading(me, objects)

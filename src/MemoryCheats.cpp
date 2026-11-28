@@ -505,7 +505,7 @@ void ExecuteTask(const WorkerTask& task) {
     }
     if (task.feature == MF::UnlimitedAmmo) {
         std::lock_guard<std::mutex> lock(gStateMutex);
-        SetResultLocked(task.feature, true, false, false, "Native refill unresolved; diagnostics enabled");
+        SetResultLocked(task.feature, true, false, false, "Local ammo cycle enabled; native reload timing");
         return;
     }
     if (task.feature == MF::HealerAim) {

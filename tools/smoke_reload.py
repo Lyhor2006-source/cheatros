@@ -19,6 +19,7 @@ def probe(me):
     wrapper[0] += 1
     return ((slot[0],42,1,wrapper[0]),mag.bullet_count,mag.magazine_capacity,[],[],42,mag)
 env = dict(_PB_AR_STATE=state, _pb_ar_install_ws_hooks=lambda: None,
+           _pb_ar_restore_local_ammo=lambda: True, _pb_ar_local_ammo=lambda *args: True,
            _pb_ar_probe=probe, _pb_ar_is_reloading=lambda *args: loading[0],
            _pb_ar_trigger_reload=request)
 exec(compile(ast.Module(body=[fn], type_ignores=[]),str(source),'exec'),env)
