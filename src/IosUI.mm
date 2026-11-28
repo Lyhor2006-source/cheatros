@@ -34,7 +34,6 @@ void DrawFovCircle(ImDrawList* draw, ImVec2 center) {
 } // namespace Aimbot
 
 namespace IosUI {
-static int sMenuDiagnosticTab = -1;
 
 static ImFont* gHeaderTitleFont = nullptr;
 static ImDrawListSplitter gCardSplitter;
@@ -1040,28 +1039,6 @@ void RenderMainMenu() {
     auto& ctx = IosUIBridge::GetContext();
     auto& layout = ctx.layout;
 
-    // Diagnostic entry: isolate the three-finger toggle from the full menu.
-    // Selecting a tab opens the normal menu on that tab for one-session triage.
-    if (sMenuDiagnosticTab < 0) {
-        ImGui::SetNextWindowPos(ImVec2(24.0f, 80.0f), ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(270.0f, 245.0f), ImGuiCond_Always);
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.04f, 0.06f, 0.09f, 0.98f));
-        if (ImGui::Begin("Menu diagnostic##rx", nullptr,
-                         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
-            ImGui::TextUnformatted("Menu opened. Select a tab:");
-            const char* tabs[] = {"ESP", "Aim", "Memory", "Settings"};
-            for (int i = 0; i < 4; ++i) {
-                if (ImGui::Button(tabs[i], ImVec2(230.0f, 32.0f))) {
-                    sMenuDiagnosticTab = i;
-                    layout.activeTab = i;
-                }
-            }
-            if (ImGui::Button("Close", ImVec2(230.0f, 28.0f))) layout.menuOpen = false;
-        }
-        ImGui::End();
-        ImGui::PopStyleColor();
-        return;
-    }
 
     ImGuiStyle savedStyle = ImGui::GetStyle();
     ApplyTheme();
@@ -1561,7 +1538,6 @@ void RenderFrame() {
     }
 
     static bool sPrevMenuOpen = false;
-    if (!layout.menuOpen) sMenuDiagnosticTab = -1;
     if (sPrevMenuOpen && !layout.menuOpen) {
         SaveSettings();
     }

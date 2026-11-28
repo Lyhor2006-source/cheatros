@@ -19,14 +19,19 @@
 }
 @end
 
+static CaptureContainerView* _Nullable FindCaptureContainerForOverlay(RyomenXOverlayView* overlay) {
+    if (!overlay) return nil;
+    for (UIView* parent = overlay.superview; parent; parent = parent.superview) {
+        if ([parent isKindOfClass:[CaptureContainerView class]]) {
+            return (CaptureContainerView*)parent;
+        }
+    }
+    return nil;
+}
+
 static CaptureContainerView* _Nullable EnsureCaptureContainerForOverlay(RyomenXOverlayView* overlay) {
     if (!overlay || !overlay.superview) return nil;
-    if ([overlay.superview.superview isKindOfClass:[CaptureContainerView class]]) {
-        return (CaptureContainerView*)overlay.superview.superview;
-    }
-    if ([overlay.superview isKindOfClass:[CaptureContainerView class]]) {
-        return (CaptureContainerView*)overlay.superview;
-    }
+    if (CaptureContainerView* existing = FindCaptureContainerForOverlay(overlay)) return existing;
     UIView* host = overlay.superview;
     CaptureContainerView* container = [[CaptureContainerView alloc] initWithFrame:host.bounds];
     [host addSubview:container];
@@ -37,12 +42,7 @@ static CaptureContainerView* _Nullable EnsureCaptureContainerForOverlay(RyomenXO
 
 static void DetachCaptureContainerIfNeeded(RyomenXOverlayView* overlay) {
     if (!overlay) return;
-    CaptureContainerView* container = nil;
-    if ([overlay.superview.superview isKindOfClass:[CaptureContainerView class]]) {
-        container = (CaptureContainerView*)overlay.superview.superview;
-    } else if ([overlay.superview isKindOfClass:[CaptureContainerView class]]) {
-        container = (CaptureContainerView*)overlay.superview;
-    }
+    CaptureContainerView* container = FindCaptureContainerForOverlay(overlay);
     if (!container || !container.superview) return;
 
     UIView* host = container.superview;
@@ -380,8 +380,7 @@ void RyomenXSetCaptureProtectionEnabled(RyomenXOverlayView* overlay, BOOL enable
         io.DeltaTime = dt;
 
         auto& ctx = IosUIBridge::GetContext();
-        const bool protectedNow = [self.superview isKindOfClass:[CaptureContainerView class]] ||
-            [self.superview.superview isKindOfClass:[CaptureContainerView class]];
+        const bool protectedNow = FindCaptureContainerForOverlay(self) != nil;
         if (ctx.layout.hideRecording != protectedNow) {
             RyomenXSetCaptureProtectionEnabled(self, ctx.layout.hideRecording ? YES : NO);
         }
