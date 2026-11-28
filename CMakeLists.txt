@@ -22,7 +22,6 @@ endif()
 set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui" CACHE PATH "Path to Dear ImGui 1.85 source tree")
 
 set(ROSMODV2_UI_SOURCES
-    src/AntiCheatBypass.mm
     src/BrandAssetsData.cpp
     src/CaptureContainerView.mm
     src/RyomenXOverlayView.mm
