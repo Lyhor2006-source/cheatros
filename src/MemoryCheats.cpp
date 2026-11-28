@@ -488,6 +488,15 @@ void ExecuteTask(const WorkerTask& task) {
         return;
     }
 
+    // A numerical heap match does not identify a recoil allocation. The legacy
+    // scan can target unrelated/freed memory; never issue those writes again.
+    if (task.feature == MF::NoRecoil) {
+        std::lock_guard<std::mutex> lock(gStateMutex);
+        SetResultLocked(task.feature, false, false, true,
+                        "Unavailable: legacy recoil scan caused heap corruption");
+        return;
+    }
+
     // Features driven purely via Python runtime / BigWorld hooks
     if (task.feature == MF::WallV2 ||
         task.feature == MF::SuperJump ||
@@ -671,18 +680,6 @@ void ExecuteTask(const WorkerTask& task) {
             applied = ApplyDwordToTargets(newPatches, hits, 20031U);
             break;
         }
-        case MF::NoRecoil: {
-            // Legacy dylib: two double search terms, target index 0, 512-byte
-            // group window; replace the selected 1.0 with an eight-byte zero.
-            auto hits = MachMemory::GroupScan(
-                regions,
-                {MachMemory::SearchItem::Double(1.0),
-                 MachMemory::SearchItem::Double(30000000.0)},
-                0, 512, 64, false);
-            matched = hits.size();
-            applied = ApplyDoubleToTargets(newPatches, hits, 0.0);
-            break;
-        }
         case MF::AutoScope: {
             auto hits = MachMemory::GroupScan(
                 regions,
@@ -841,8 +838,7 @@ void ExecuteTask(const WorkerTask& task) {
         SetResultLocked(task.feature, true, true, false, detail);
     } else if (task.feature == MF::FastParachute && matched == 0) {
         SetResultLocked(task.feature, true, false, false, "Waiting for parachute memory");
-    } else if (task.feature == MF::NoRecoil && matched == 0) {
-        SetResultLocked(task.feature, true, false, false, "Waiting for recoil data (enter match)");
+
     } else if (hasPythonFallback) {
         SetResultLocked(task.feature, true, true, false, detail.empty() ? "ACTIVE (BigWorld)" : detail);
     } else if (matched > 0) {
@@ -1130,11 +1126,6 @@ void Tick() {
                 retries.push_back(WorkerTask{
                     IosUIBridge::MemoryFeature::SpeedHack, true,
                     gSpeedMultiplier.load(std::memory_order_relaxed), true});
-            }
-            const auto& recoil = gFeatures[static_cast<size_t>(IosUIBridge::MemoryFeature::NoRecoil)];
-            if (recoil.enabled && !recoil.pending && recoil.patches.Count() == 0) {
-                retries.push_back(WorkerTask{
-                    IosUIBridge::MemoryFeature::NoRecoil, true, 1.0f, true});
             }
             const auto& fp = gFeatures[static_cast<size_t>(IosUIBridge::MemoryFeature::FastParachute)];
             if (fp.enabled && !fp.pending && fp.patches.Count() == 0) {

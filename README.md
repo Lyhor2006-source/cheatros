@@ -24,6 +24,6 @@ Fast Parachute scans in the background while disabled and remembers the original
 
 Camera Aim supports Always, Scoped, Hip Firing (firing with scope closed), and Scoped or Firing (either action). Trigger detection includes the equipped gun rail. Camera target selection remains within the configured FOV/range and uses smoothing independent of update frequency. Silent Aim and 360 Silent Aim run independently of camera aiming, share those trigger rules, and use their own Silent Aim Distance. 360 takes priority if both silent switches are on. Healer assistance retains native projectiles and bypasses enemy ray redirection.
 
-No Recoil uses the legacy native double-value group scan (`1.0`, `30000000.0`, target index 0, window 512) and restores owned patches when disabled. It retries in the background while recoil data is unavailable; no generic Python recoil-field override is enabled.
+No Recoil is unavailable: a device crash reported allocator free-block corruption after enabling the legacy numerical heap scan. That scan and its retries have been removed. No recoil-related raw writes are performed. Restoring this feature requires a verified owned recoil field or callback; numeric proximity is not sufficient ownership evidence.
 
 Regression checks: `python tools/smoke_aim.py`, `python tools/smoke_silent_aim.py`, `python tools/smoke_healer_aim.py`, and `python tools/smoke_local_ammo_cycle.py`. Device behavior and server acceptance require in-game verification.
