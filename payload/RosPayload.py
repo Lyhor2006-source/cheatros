@@ -3989,6 +3989,32 @@ def _pb_ar_trigger_reload(me, objs):
 
 
 
+def _pb_ammo_method_report(magazine):
+    # Read implementation metadata only. Never invoke a refill method while
+    # discovering it: it may consume inventory or bypass an animation.
+    import binascii
+    lines = []
+    for name in ('fillUpMagazineAndAmmoBox', 'fillUpMagazine',
+                 'refreshPackageBulletCount', 'getCountOfBulletToReload',
+                 'addBulletToMagazine', 'addCurrentBullet', 'syncBullet',
+                 '_bulletInfinite', 'decBulletFromMagazine'):
+        try:
+            method = getattr(magazine, name, None)
+            function = getattr(method, '__func__', None) or getattr(method, 'im_func', None) or method
+            code = getattr(function, '__code__', None) or getattr(function, 'func_code', None)
+            if code is None:
+                lines.append('METHOD %s: native or unavailable' % name)
+                continue
+            lines.append('METHOD %s args=%r defaults=%r names=%r constants=%r code=%s' % (
+                name, code.co_varnames[:code.co_argcount],
+                getattr(function, '__defaults__', getattr(function, 'func_defaults', None)),
+                code.co_names, code.co_consts,
+                binascii.hexlify(code.co_code).decode('ascii')))
+        except Exception as error:
+            lines.append('METHOD %s: %s' % (name, type(error).__name__))
+    return lines
+
+
 def _pb_auto_reload(me, c):
     import time
     ar_on = bool(c and len(c) > 43 and c[43] >= 0.5)
@@ -4805,6 +4831,8 @@ def _pb_diag(me, ents):
 
             open(_RYOMENX_DIR + '/ros_feature_diag.txt', 'w').write('\n'.join(f_out))
             ammo_lines = [line for line in f_out if line.startswith(('AR_', 'MAG_', 'MAG ', 'DTS_WEP', 'RAIL_DIR', 'mags='))]
+            if res_ar and res_ar[0] is not None and res_ar[6] is not None:
+                ammo_lines.extend(_pb_ammo_method_report(res_ar[6]))
             _pb_publish(_RYOMENX_DIR + '/ros_ammo_diag.txt', _PB_AR_STATE.get('detail', '') + '\n' + '\n'.join(ammo_lines))
 
         except Exception as fex:

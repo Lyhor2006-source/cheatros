@@ -170,7 +170,7 @@ public:
         const std::string path = baseDir_ + "/ros_ammo_diag.txt";
         FILE* fp = std::fopen(path.c_str(), "rb");
         if (!fp) return std::string();
-        char buf[16384] = {};
+        char buf[65536] = {};
         const size_t count = std::fread(buf, 1, sizeof(buf) - 1, fp);
         std::fclose(fp);
         return std::string(buf, count);
