@@ -9,6 +9,7 @@
 #include <cstring>
 
 #if defined(__APPLE__)
+#include <libkern/OSCacheControl.h>
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
@@ -52,9 +53,7 @@ bool SafePatchCode(uintptr_t addr, const void* data, size_t size) {
         FALSE,
         VM_PROT_READ | VM_PROT_EXECUTE);
 
-    __builtin___clear_cache(
-        reinterpret_cast<char*>(addr),
-        reinterpret_cast<char*>(addr + size));
+    sys_icache_invalidate(reinterpret_cast<void*>(addr), size);
 
     return true;
 }
