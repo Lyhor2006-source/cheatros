@@ -1,4 +1,5 @@
 #import "RyomenXOverlayView.h"
+#import "AntiCheatBypass.h"
 #import "CaptureContainerView.h"
 #import "BrandAssets.h"
 #import "IosGameBridge.h"
@@ -599,6 +600,7 @@ void RyomenXSetHostBackend(IosUIBridge::IHostBackend* _Nullable backend) {
 #ifndef ROSMODV2_DISABLE_AUTO_ATTACH
 __attribute__((constructor))
 static void RosModV2UI_DylibEntry(void) {
+    AntiCheatBypass::InstallRuntimeHooks();
     RyomenXInstallTouchHook();
     dispatch_async(dispatch_get_main_queue(), ^{
         IosGameBridge::Initialize();
